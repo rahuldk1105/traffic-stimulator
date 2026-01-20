@@ -1,0 +1,19 @@
+# Compiled binaries
+traffic_simulator
+traffic_simulator.exe
+
+# Object files
+*.o
+*.obj
+
+# Editor files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# IDE files
+.vscode/
+.idea/
+*.suo
+*.user
