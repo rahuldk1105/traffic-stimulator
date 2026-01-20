@@ -313,3 +313,147 @@ Vehicle* lookupVehicleByNumber(TrafficSystem* system, char* vehicle_number) {
 
     return NULL;
 }
+
+// ============= PRIORITY CALCULATION =============
+
+#define PRIORITY_AMBULANCE 1000
+#define PRIORITY_FIRE 900
+#define PRIORITY_POLICE 800
+#define PRIORITY_VIP 500
+#define PRIORITY_BUS_SCHOOL_ZONE 300
+#define PRIORITY_MAIN_ROAD 200
+#define PRIORITY_ACCIDENT 400
+#define PRIORITY_PEDESTRIAN_CROSSING 250
+#define PRIORITY_RUSH_HOUR 150
+#define PRIORITY_HEAVY_WEATHER 100
+#define BASE_PRIORITY_PER_VEHICLE 10
+#define BASE_PRIORITY_PER_SECOND 5
+
+typedef struct {
+    int is_main_road;
+    int is_accident;
+    int is_school_zone;
+    int is_heavy_weather;
+    int is_rush_hour;
+    int has_pedestrian_crossing;
+} ScenarioFlags;
+
+int getVehiclePriority(Vehicle vehicle, ScenarioFlags* flags) {
+    int priority = 0;
+
+    switch (vehicle.type) {
+        case AMBULANCE:
+            priority = PRIORITY_AMBULANCE;
+            break;
+        case FIRE:
+            priority = PRIORITY_FIRE;
+            break;
+        case POLICE:
+            priority = PRIORITY_POLICE;
+            break;
+        case VIP:
+            priority = PRIORITY_VIP;
+            break;
+        case BUS:
+            if (flags && flags->is_school_zone) {
+                priority = PRIORITY_BUS_SCHOOL_ZONE;
+            }
+            break;
+        case NORMAL:
+        default:
+            priority = 0;
+            break;
+    }
+
+    return priority;
+}
+
+int getMaxVehiclePriorityInLane(LaneQueue* queue, ScenarioFlags* flags) {
+    if (isQueueEmpty(queue)) {
+        return 0;
+    }
+
+    int maxPriority = 0;
+    QueueNode* current = queue->front;
+
+    while (current != NULL) {
+        int vehiclePriority = getVehiclePriority(current->vehicle, flags);
+        if (vehiclePriority > maxPriority) {
+            maxPriority = vehiclePriority;
+        }
+        current = current->next;
+    }
+
+    return maxPriority;
+}
+
+int getAverageWaitingTime(LaneQueue* queue, int current_time) {
+    if (isQueueEmpty(queue)) {
+        return 0;
+    }
+
+    int totalWaitTime = 0;
+    int count = 0;
+    QueueNode* current = queue->front;
+
+    while (current != NULL) {
+        int waitTime = current_time - current->vehicle.arrival_time;
+        if (waitTime < 0) {
+            waitTime = 0;
+        }
+        totalWaitTime += waitTime;
+        count++;
+        current = current->next;
+    }
+
+    return count > 0 ? totalWaitTime / count : 0;
+}
+
+int calculateLanePriority(TrafficSystem* system, int lane_id, ScenarioFlags* flags, int current_time) {
+    if (lane_id < 0 || lane_id >= NUM_LANES) {
+        return 0;
+    }
+
+    Lane* lane = &system->lanes[lane_id];
+    int priority = 0;
+
+    int queueLength = lane->queue->size;
+    int avgWaitTime = getAverageWaitingTime(lane->queue, current_time);
+
+    priority += queueLength * BASE_PRIORITY_PER_VEHICLE;
+    priority += avgWaitTime * BASE_PRIORITY_PER_SECOND;
+
+    int maxVehiclePriority = getMaxVehiclePriorityInLane(lane->queue, flags);
+    priority += maxVehiclePriority;
+
+    if (flags) {
+        if (flags->is_main_road) {
+            priority += PRIORITY_MAIN_ROAD;
+        }
+
+        if (flags->is_accident) {
+            priority += PRIORITY_ACCIDENT;
+        }
+
+        if (flags->has_pedestrian_crossing) {
+            priority += PRIORITY_PEDESTRIAN_CROSSING;
+        }
+
+        if (flags->is_rush_hour) {
+            priority += PRIORITY_RUSH_HOUR;
+        }
+
+        if (flags->is_heavy_weather) {
+            QueueNode* current = lane->queue->front;
+            while (current != NULL) {
+                if (current->vehicle.type == BUS) {
+                    priority += PRIORITY_HEAVY_WEATHER;
+                    break;
+                }
+                current = current->next;
+            }
+        }
+    }
+
+    return priority;
+}
