@@ -117,6 +117,70 @@ app.get('/api/state', (req, res) => {
 });
 console.log('Route registered: /api/state');
 
+// This decision route spawns the stateless backend for a single decision
+app.post('/api/decide', (req, res) => {
+    console.log('[BACKEND] /api/decide called');
+    const simulatorPath = path.join(__dirname, '../backend/traffic_sim');
+    const inputData = JSON.stringify(req.body);
+
+    let decisionProcess;
+    try {
+        // Spawn without arguments, since it reads from STDIN
+        console.log('[BACKEND] Spawning C decision engine...');
+        decisionProcess = spawn(simulatorPath, []);
+    } catch (err) {
+        console.error('[BACKEND] Failed to spawn decision process:', err);
+        return res.status(500).json({ error: 'Failed to spawn decision engine', details: err.message });
+    }
+
+    let outputData = '';
+    let errorData = '';
+
+    // Send data to C program via stdin
+    decisionProcess.stdin.write(inputData);
+    decisionProcess.stdin.end();
+
+    decisionProcess.stdout.on('data', (chunk) => {
+        outputData += chunk.toString();
+    });
+
+    decisionProcess.stderr.on('data', (chunk) => {
+        errorData += chunk.toString();
+        // Assume C engine logs to stderr as requested, pass through to console
+        process.stderr.write(`[C-ENGINE RAW] ${chunk.toString()}`);
+    });
+
+    decisionProcess.on('close', (code) => {
+        if (code !== 0) {
+            console.error(`[BACKEND] Decision process exited with code ${code}. Stderr: ${errorData}`);
+            return res.status(500).json({ error: 'Decision engine failed', details: errorData });
+        }
+
+        try {
+            // Check if output is empty
+            if (!outputData.trim()) {
+                console.error('[BACKEND] No output from decision engine');
+                return res.status(500).json({ error: 'No output from decision engine' });
+            }
+
+            const result = JSON.parse(outputData);
+            console.log(`[BACKEND] Decision sent: green_lane=${result.selected_lane}, vehicles_to_pass=${result.num_vehicles_to_pass}`);
+            res.json(result);
+        } catch (e) {
+            console.error('[BACKEND] Failed to parse decision output:', e, 'Raw output:', outputData);
+            res.status(500).json({ error: 'Invalid JSON from decision engine', raw: outputData });
+        }
+    });
+
+    decisionProcess.on('error', (err) => {
+        console.error('[BACKEND] Decision process error:', err);
+        if (!res.headersSent) {
+            res.status(500).json({ error: 'Process execution error', details: err.message });
+        }
+    });
+});
+console.log('Route registered: /api/decide');
+
 app.use(express.static(path.join(__dirname, '../public')));
 
 app.listen(PORT, () => {

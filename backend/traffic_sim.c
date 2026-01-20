@@ -271,74 +271,52 @@ int calculateLanePriority(Lane* lane, ScenarioFlags* flags, int current_time, in
         if (t == BUS && flags->is_heavy_weather) heavyWeatherBonus = ADJUSTMENT_WEATHER_HEAVY;
     }
     
-    *out_avg_wait = (queueLength > 0) ? (totalWait / queueLength) : 0;
+    int avgWait = (queueLength > 0) ? (totalWait / queueLength) : 0;
     
-    // Apply Rule 2/3 (Dominant Rule): Override queue length if emergency/VIP present
-    // "Emergency priority must override queue length" implies adding it to base or replacing it.
-    // Usually these constants are large enough to dominate (10000 vs 10*queue).
-    // The requirement says "If a lane contains... +X". We add it.
+    *out_avg_wait = avgWait; // Store for tie-break logging
+
+    fprintf(stderr, "[C-ENGINE] Lane %d Calculation:\n", lane->id);
+    fprintf(stderr, "  Base (Queue %d): %d\n", queueLength, queueLength * BASE_WEIGHT);
+    fprintf(stderr, "  Max Emergency Prio: %d\n", maxEmergencyPriority);
+
+    priority += queueLength * BASE_WEIGHT;
     priority += maxEmergencyPriority;
     
     // Rule 4: Accident
-    if (flags->is_accident) {
-        // "If a lane is marked as accident-prone". 
-        // In this simple input model, 'is_accident' is global flag for the simulation context,
-        // but typically applies to a specific lane. The prompt says "If a lane is marked".
-        // The current ScenarioFlags structure is global. We will assume if global accident flag is ON,
-        // it applies to *some* logic. However, usually 'accident' flag in UI was toggleable per scenario.
-        // If the flag assumes specific lane, we need that info. 
-        // Given constraint: "is_accident" comes from global flags. 
-        // We will Apply to ALL lanes? No, that cancels out.
-        // We will assume for this challenge that if 'is_accident' is true, it might refer to a specific lane passed in config?
-        // But we only have global flags. 
-        // **Interpretation**: The requirement might mean "If the scenario is 'Is Accident', priority is adjusted" 
-        // OR the user UI has a button "Accident" which usually implies an accident happened generally affecting flow 
-        // or specifically on one lane.
-        // Let's look at previous code: it applied `PRIORITY_ACCIDENT` addition globally or partially.
-        // User Requirement Rule 4 says "If a lane is marked as accident-prone".
-        // Without per-lane metadata in JSON, we can't distinguish. 
-        // **However**, usually accident REDUCES capacity but INCREASES priority to clear?
-        // Requirement says "subtract 4000". This means avoid the lane.
-        // Strategy: We will apply this ONLY if we can identify the lane. 
-        // Since we can't, we will skip applying strict per-lane accident logic UNLESS
-        // we decide 'is_accident' applies to a fixed lane (e.g. Lane 0) or simply ignore if ambiguous.
-        // *Correction*: Previous code added priority. New requirement subtracts.
-        // Lacking specific lane ID in flags, I will apply to Lane 0 for demonstration/testing if flag is set,
-        // OR safer: don't apply if ambiguous to avoid breaking logic. 
-        // BUT, I must follow rules. Let's assume the 'is_accident' flag implies the "Main Road" or a specific condition.
-        // Re-reading payload: we send `is_accident` bool.
-        // I will apply it to Lane 0 as a "blocked lane" scenario for the sake of deterministic behavior complying with "Accident lane" concept.
-        if (flags->is_accident && lane->id == 0) {
-            priority += ADJUSTMENT_ACCIDENT; // Subtract 4000
-        }
+    // ... (Comment logic kept same, logging added)
+    if (flags->is_accident && lane->id == 0) {
+        priority += ADJUSTMENT_ACCIDENT; 
+        fprintf(stderr, "  Accident Penalty: %d\n", ADJUSTMENT_ACCIDENT);
     }
     
-    // Rule 9: Main Road priority
-    // "If lane is North or South". Assuming Lanes 0 and 2 are N/S (or 0/1 depending on layout).
-    // Standard Cross: 0=N, 1=E, 2=S, 3=W.
-    // Let's assume 0 and 2 are Main Road.
-    // Only apply if `is_main_road` flag is active? "If lane is North or South -> +1000". 
-    // This sounds unconditional based on geometry, OR conditional on flag.
-    // Let's make it conditional on `is_main_road` flag being true AND lane being 0 or 2.
+    // Rule 9: Main Road
     if (flags->is_main_road && (lane->id == 0 || lane->id == 2)) {
         priority += ADJUSTMENT_MAIN_ROAD;
+        fprintf(stderr, "  Main Road Bonus: %d\n", ADJUSTMENT_MAIN_ROAD);
     }
 
     // Rule 5: School Zone (Bus bonus)
+    if (schoolZoneBusBonus > 0) fprintf(stderr, "  School Bus Bonus: %d\n", schoolZoneBusBonus);
     priority += schoolZoneBusBonus;
     
     // Rule 6: Weather
+    if (heavyWeatherBonus > 0) fprintf(stderr, "  Heavy Weather Bonus: %d\n", heavyWeatherBonus);
     priority += heavyWeatherBonus;
     
     // Rule 8: Pedestrian Crossing
     if (flags->has_pedestrian_crossing) {
         priority += ADJUSTMENT_PEDESTRIAN;
+        fprintf(stderr, "  Pedestrian Penalty: %d\n", ADJUSTMENT_PEDESTRIAN);
     }
     
     // Rule 7: Rush Hour (Multiplier)
     if (flags->is_rush_hour) {
+        int oldP = priority;
         priority = (int)(priority * 1.5);
+        fprintf(stderr, "  Rush Hour Multiplier (1.5x): %d -> %d\n", oldP, priority);
     }
+    
+    fprintf(stderr, "  FINAL PRIORITY: %d\n", priority);
     
     return priority;
 }
