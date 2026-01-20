@@ -11,6 +11,7 @@ const CONFIG = {
 };
 
 // ==================== STATE MANAGEMENT ====================
+// ==================== STATE MANAGEMENT ====================
 const state = {
     isRunning: false,
     lastTime: 0,
@@ -18,6 +19,7 @@ const state = {
     currentGreenLane: -1,
     vehiclesToPass: 0,
     waitingForDecision: false,
+    simulationMode: 'PRIORITY', // 'PRIORITY' or 'ROUND_ROBIN'
 
     lanes: Array.from({ length: 4 }, (_, i) => ({
         id: i,
@@ -31,7 +33,9 @@ const state = {
         is_heavy_weather: false,
         is_rush_hour: false,
         has_pedestrian_crossing: false
+        // Emergency and others are handled via spawners or temporary flags
     },
+    activeScenarios: new Set(), // Track UI state for "Emergency", "Congestion" etc
     stats: {
         served: 0,
         switches: 0,
@@ -45,22 +49,19 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initControls() {
-    ['emergency', 'accident', 'school-zone', 'rush-hour'].forEach(type => {
-        const btn = document.getElementById(`btn-${type}`);
-        if (btn) {
-            btn.addEventListener('click', () => {
-                const map = {
-                    'emergency': 'is_accident',
-                    'accident': 'is_accident',
-                    'school-zone': 'is_school_zone',
-                    'rush-hour': 'is_rush_hour'
-                };
-                const key = map[type];
-                if (key) state.scenario[key] = !state.scenario[key];
+    // Mode Switching
+    const modePriorityBtn = document.getElementById('mode-priority');
+    if (modePriorityBtn) modePriorityBtn.addEventListener('click', () => setMode('PRIORITY'));
 
-                btn.classList.toggle('active');
-            });
-        }
+    const modeRrBtn = document.getElementById('mode-rr');
+    if (modeRrBtn) modeRrBtn.addEventListener('click', () => setMode('ROUND_ROBIN'));
+
+    // Scenario Sidebar
+    document.querySelectorAll('.scenario-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const scenario = btn.dataset.scenario;
+            toggleScenario(scenario, btn);
+        });
     });
 
     document.getElementById('btn-start').addEventListener('click', () => {
@@ -70,6 +71,78 @@ function initControls() {
             stopSimulation();
         }
     });
+
+    setMode('PRIORITY'); // Default
+}
+
+function setMode(mode) {
+    state.simulationMode = mode;
+    const modePriorityBtn = document.getElementById('mode-priority');
+    if (modePriorityBtn) modePriorityBtn.classList.toggle('active', mode === 'PRIORITY');
+
+    const modeRrBtn = document.getElementById('mode-rr');
+    if (modeRrBtn) modeRrBtn.classList.toggle('active', mode === 'ROUND_ROBIN');
+    console.log(`[FRONTEND] Mode set to: ${mode}`);
+}
+
+function toggleScenario(scenario, btn) {
+    if (state.activeScenarios.has(scenario)) {
+        state.activeScenarios.delete(scenario);
+        btn.classList.remove('active');
+        // Disable flag if applicable
+        updateScenarioFlag(scenario, false);
+    } else {
+        state.activeScenarios.add(scenario);
+        btn.classList.add('active');
+        // Enable flag if applicable
+        updateScenarioFlag(scenario, true);
+
+        // Immediate Actions for specific vehicles
+        handleInstantScenarioActions(scenario);
+    }
+}
+
+function updateScenarioFlag(scenario, isActive) {
+    const map = {
+        'main_road': 'is_main_road',
+        'accident': 'is_accident',
+        'school_zone': 'is_school_zone',
+        'weather': 'is_heavy_weather',
+        'rush_hour': 'is_rush_hour',
+        'pedestrian': 'has_pedestrian_crossing'
+    };
+    if (map[scenario]) {
+        state.scenario[map[scenario]] = isActive;
+        console.log(`[FRONTEND] Scenario Flag ${map[scenario]}: ${isActive}`);
+    }
+}
+
+function handleInstantScenarioActions(scenario) {
+    const directions = ['STRAIGHT', 'LEFT', 'RIGHT'];
+    // For vehicle specific scenarios, we might want to inject one immediately to verify
+    if (scenario === 'ambulance') {
+        spawnVehicle('AMBULANCE');
+    } else if (scenario === 'fire') {
+        spawnVehicle('FIRE');
+    } else if (scenario === 'police') {
+        spawnVehicle('POLICE');
+    } else if (scenario === 'vip') {
+        spawnVehicle('VIP');
+    } else if (scenario === 'congestion') {
+        // Spawn a burst
+        for (let i = 0; i < 8; i++) spawnVehicle('NORMAL');
+    } else if (scenario === 'mixed_emergency') {
+        spawnVehicle('AMBULANCE');
+        spawnVehicle('FIRE');
+        spawnVehicle('POLICE');
+    }
+}
+
+function spawnVehicle(type) {
+    const laneId = Math.floor(Math.random() * 4);
+    const directions = ['STRAIGHT', 'LEFT', 'RIGHT'];
+    const dir = directions[Math.floor(Math.random() * directions.length)];
+    addVehicle(laneId, type, dir);
 }
 
 function startSimulation() {
@@ -100,7 +173,9 @@ function generateInitialTraffic() {
     const hasVehicles = state.lanes.some(l => l.vehicles.length > 0);
     if (hasVehicles) return;
 
-    const types = ['NORMAL', 'BUS', 'VIP', 'AMBULANCE', 'FIRE', 'POLICE'];
+    // Use active scenarios to bias initial traffic?
+    // For now, standard random
+    const types = ['NORMAL', 'BUS'];
     const directions = ['STRAIGHT', 'LEFT', 'RIGHT'];
 
     state.lanes.forEach(lane => {
@@ -284,10 +359,12 @@ function update(dt, currentTime) {
 
 async function makeDecision() {
     state.waitingForDecision = true;
+    console.log('[FRONTEND] Backend decision requested');
 
     // Use currently queued vehicles for decision
     const payload = {
         current_time: Math.floor(Date.now() / 1000),
+        simulation_mode: state.simulationMode, // Pass mode to backend
         ...state.scenario,
         lanes: state.lanes.map(l => ({
             id: l.id,
@@ -307,22 +384,29 @@ async function makeDecision() {
         if (response.ok) {
             const decision = await response.json();
 
+            console.log(`[FRONTEND] Decision received: Green Lane ${decision.selected_lane}`);
+
             if (decision.selected_lane !== state.currentGreenLane) {
                 state.stats.switches++;
+                console.log(`[FRONTEND] Signal cycle start: Green switched to Lane ${decision.selected_lane}`);
+            } else {
+                console.log(`[FRONTEND] Signal cycle start: Green continues on Lane ${decision.selected_lane}`);
             }
 
             state.currentGreenLane = decision.selected_lane;
             state.vehiclesToPass = decision.num_vehicles_to_pass;
 
             if (decision.priority_heap) {
+                console.log('[FRONTEND] Priority queue data received');
                 updatePriorityViz(decision.priority_heap);
             }
         }
     } catch (e) {
-        console.error("Backend decision failed", e);
+        console.error("[FRONTEND] Backend decision failed", e);
     } finally {
         state.waitingForDecision = false;
         state.signalTimer = 0;
+        console.log('[FRONTEND] Signal cycle end (timer reset)');
     }
 }
 
