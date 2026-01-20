@@ -1,283 +1,449 @@
-// State storage
-let lastState = null;
-let isAnimating = false;
-let pendingState = null;
+// ==================== CONFIGURATION ====================
+const CONFIG = {
+    SIGNAL_DURATION: 4000,        // Green light holds for 4s
+    VEHICLE_MOVE_DURATION: 1500,  // Crossing intersection takes 1.5s
 
-let currentMode = 'priority';
-let scenarioFlags = {
-    emergency: false,
-    accident: false,
-    school_zone: false,
-    rush_hour: false,
-    tie_case: false
+    // Layout
+    LANE_COUNT: 4,
+    VEHICLE_WIDTH: 60,
+    VEHICLE_GAP: 10,
+    INTERSECTION_SIZE: 200, // Visual space for intersection crossing
 };
 
-let rrStats = { avgWaitTime: 0, served: 0, switches: 0 };
-let pqStats = { avgWaitTime: 0, served: 0, switches: 0 };
-let pollingInterval = null;
-let isSimulationRunning = false;
+// ==================== STATE MANAGEMENT ====================
+const state = {
+    isRunning: false,
+    lastTime: 0,
+    signalTimer: 0,
+    currentGreenLane: -1,
+    vehiclesToPass: 0,
+    waitingForDecision: false,
 
-const btnEmergency = document.getElementById('btn-emergency');
-const btnAccident = document.getElementById('btn-accident');
-const btnSchoolZone = document.getElementById('btn-school-zone');
-const btnRushHour = document.getElementById('btn-rush-hour');
-const btnTieCase = document.getElementById('btn-tie-case');
-const btnMode = document.getElementById('btn-mode');
-const btnStart = document.getElementById('btn-start');
-
-btnEmergency.addEventListener('click', () => toggleScenario('emergency', btnEmergency));
-btnAccident.addEventListener('click', () => toggleScenario('accident', btnAccident));
-btnSchoolZone.addEventListener('click', () => toggleScenario('school_zone', btnSchoolZone));
-btnRushHour.addEventListener('click', () => toggleScenario('rush_hour', btnRushHour));
-btnTieCase.addEventListener('click', () => toggleScenario('tie_case', btnTieCase));
-btnMode.addEventListener('click', toggleMode);
-btnStart.addEventListener('click', startSimulation);
-
-function toggleScenario(scenario, button) {
-    scenarioFlags[scenario] = !scenarioFlags[scenario];
-    button.classList.toggle('active');
-}
-
-function toggleMode() {
-    currentMode = currentMode === 'priority' ? 'round_robin' : 'priority';
-    btnMode.textContent = `MODE: ${currentMode.toUpperCase().replace('_', ' ')}`;
-}
-
-async function startSimulation() {
-    try {
-        const response = await fetch('/api/start', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                emergency: scenarioFlags.emergency,
-                accident: scenarioFlags.accident,
-                school_zone: scenarioFlags.school_zone,
-                rush_hour: scenarioFlags.rush_hour,
-                tie_case: scenarioFlags.tie_case,
-                algorithm: currentMode,
-                steps: 10
-            })
-        });
-
-        const result = await response.json();
-
-        if (response.ok) {
-            isSimulationRunning = true;
-            // Reset client-side state on new simulation start
-            lastState = null;
-            selectedLaneId = -1;
-
-            if (!pollingInterval) {
-                pollingInterval = setInterval(fetchSimulationState, 500);
-            }
-        } else {
-            console.error('Failed to start simulation:', result.error);
-        }
-    } catch (error) {
-        console.error('Error starting simulation:', error);
+    lanes: Array.from({ length: 4 }, (_, i) => ({
+        id: i,
+        vehicles: [],
+        priority: 0
+    })),
+    scenario: {
+        is_main_road: false,
+        is_accident: false,
+        is_school_zone: false,
+        is_heavy_weather: false,
+        is_rush_hour: false,
+        has_pedestrian_crossing: false
+    },
+    stats: {
+        served: 0,
+        switches: 0,
     }
-}
+};
 
-async function fetchSimulationState() {
-    try {
-        const response = await fetch('/api/state');
+// ==================== INITIALIZATION ====================
+document.addEventListener('DOMContentLoaded', () => {
+    initControls();
+    requestAnimationFrame(gameLoop);
+});
 
-        if (!response.ok) {
-            return;
-        }
+function initControls() {
+    ['emergency', 'accident', 'school-zone', 'rush-hour'].forEach(type => {
+        const btn = document.getElementById(`btn-${type}`);
+        if (btn) {
+            btn.addEventListener('click', () => {
+                const map = {
+                    'emergency': 'is_accident',
+                    'accident': 'is_accident',
+                    'school-zone': 'is_school_zone',
+                    'rush-hour': 'is_rush_hour'
+                };
+                const key = map[type];
+                if (key) state.scenario[key] = !state.scenario[key];
 
-        const result = await response.json();
-
-        // Check if simulation stopped
-        if (!result.running) {
-            isSimulationRunning = false;
-        }
-
-        // Only update if we have a valid state and it's new
-        if (result.state) {
-            if (!lastState || result.state.current_time !== lastState.current_time) {
-                handleStateUpdate(result.state);
-            }
-        }
-    } catch (error) {
-        console.error('Error fetching simulation state:', error);
-    }
-}
-
-function handleStateUpdate(newState) {
-    if (isAnimating) {
-        pendingState = newState;
-        return;
-    }
-
-    // Initial render
-    if (!lastState) {
-        fullRender(newState);
-        lastState = newState;
-        return;
-    }
-
-    // Determine if we need animation
-    // Animation needed if vehicles moved in the selected lane
-    const laneId = newState.selected_lane;
-    const vehiclesMoved = newState.vehicles_moved_this_cycle;
-
-    if (vehiclesMoved > 0) {
-        isAnimating = true;
-        animateLane(laneId, vehiclesMoved, newState);
-    } else {
-        fullRender(newState);
-        lastState = newState;
-    }
-}
-
-function animateLane(laneId, movedCount, newState) {
-    const laneEl = document.getElementById(`lane-${laneId}`);
-    if (!laneEl) {
-        isAnimating = false;
-        fullRender(newState);
-        lastState = newState;
-        return;
-    }
-
-    const queueEl = laneEl.querySelector('.lane-queue');
-    const vehicles = Array.from(queueEl.children);
-
-    // Apply animation classes
-    vehicles.forEach((v, idx) => {
-        if (idx < movedCount) {
-            v.classList.add('moving-out');
-        } else {
-            v.classList.add('shifting');
+                btn.classList.toggle('active');
+            });
         }
     });
 
-    // Wait for transition to complete (700ms match with CSS)
-    setTimeout(() => {
-        fullRender(newState);
-        lastState = newState;
-        isAnimating = false;
-
-        // Process pending state if any
-        if (pendingState) {
-            const next = pendingState;
-            pendingState = null;
-            // Prevent recursion stack overflow if rapid updates (using setTimeout 0)
-            setTimeout(() => handleStateUpdate(next), 0);
+    document.getElementById('btn-start').addEventListener('click', () => {
+        if (!state.isRunning) {
+            startSimulation();
+        } else {
+            stopSimulation();
         }
-    }, 700);
+    });
 }
 
-function fullRender(data) {
-    document.getElementById('current-time').textContent = data.current_time;
-    document.getElementById('vehicles-served').textContent = data.performance_metrics.total_vehicles_served;
-    document.getElementById('avg-wait-time').textContent = data.performance_metrics.average_waiting_time.toFixed(1);
-    document.getElementById('signal-switches').textContent = data.performance_metrics.signal_switch_count;
+function startSimulation() {
+    state.isRunning = true;
+    state.lastTime = performance.now();
+    state.signalTimer = CONFIG.SIGNAL_DURATION;
+    state.currentGreenLane = -1;
+    state.vehiclesToPass = 0;
+    state.waitingForDecision = false;
 
-    for (let i = 0; i < 4; i++) {
-        const lane = data.lanes[i];
-        const laneElement = document.getElementById(`lane-${i}`);
-        const header = laneElement.querySelector('.lane-header');
-        const queueElement = laneElement.querySelector('.lane-queue');
+    generateInitialTraffic();
 
-        header.classList.toggle('active', i === data.selected_lane);
-        header.querySelector('.lane-priority').textContent = lane.priority;
-        header.querySelector('.lane-queue-length').textContent = lane.queue_length;
+    const btn = document.getElementById('btn-start');
+    btn.textContent = 'STOP SIMULATION';
+    btn.style.backgroundColor = '#ff4444';
+    btn.style.color = 'white';
+}
 
-        queueElement.innerHTML = '';
-        lane.vehicles.forEach((vehicle) => {
-            const vehicleElement = document.createElement('div');
-            vehicleElement.className = `vehicle ${vehicle.type}`;
-            vehicleElement.setAttribute('data-type', vehicle.type);
-            vehicleElement.textContent = vehicle.vehicle_number;
-            queueElement.appendChild(vehicleElement);
+function stopSimulation() {
+    state.isRunning = false;
+    const btn = document.getElementById('btn-start');
+    btn.textContent = 'START SIMULATION';
+    btn.style.backgroundColor = '';
+    btn.style.color = '';
+}
+
+function generateInitialTraffic() {
+    const hasVehicles = state.lanes.some(l => l.vehicles.length > 0);
+    if (hasVehicles) return;
+
+    const types = ['NORMAL', 'BUS', 'VIP', 'AMBULANCE', 'FIRE', 'POLICE'];
+    const directions = ['STRAIGHT', 'LEFT', 'RIGHT'];
+
+    state.lanes.forEach(lane => {
+        for (let i = 0; i < 4; i++) {
+            addVehicle(lane.id,
+                types[Math.floor(Math.random() * types.length)],
+                directions[Math.floor(Math.random() * directions.length)]
+            );
+        }
+    });
+}
+
+let vehicleIdCounter = 1;
+function addVehicle(laneId, type, direction = 'STRAIGHT') {
+    const lane = state.lanes[laneId];
+    const queueIndex = lane.vehicles.length;
+    // Position 0 is closest to intersection (x=0)
+    // x represents distance FROM intersection line
+    const targetX = queueIndex * (CONFIG.VEHICLE_WIDTH + CONFIG.VEHICLE_GAP);
+
+    lane.vehicles.push({
+        id: `V${vehicleIdCounter++}`,
+        type: type,
+        direction: direction,
+        x: targetX + 800, // Spawn off-screen right
+        targetX: targetX,
+        startX: targetX + 800,
+        y: 0, // Cross-lane position (center)
+        startY: 0,
+        targetY: 0,
+        moveStartTime: performance.now(),
+        state: 'queued',
+        arrivalTime: Date.now()
+    });
+}
+
+// ==================== GAME LOOP ====================
+function gameLoop(timestamp) {
+    if (!state.lastTime) state.lastTime = timestamp;
+    const dt = timestamp - state.lastTime;
+    state.lastTime = timestamp;
+
+    if (state.isRunning) {
+        update(dt, timestamp);
+        render();
+    }
+
+    requestAnimationFrame(gameLoop);
+}
+
+function update(dt, currentTime) {
+    // 0. Occasional Traffic
+    if (Math.random() < 0.005) {
+        const laneId = Math.floor(Math.random() * 4);
+        const types = ['NORMAL', 'BUS'];
+        const directions = ['STRAIGHT', 'LEFT', 'RIGHT'];
+        if (state.lanes[laneId].vehicles.length < 10) {
+            addVehicle(laneId,
+                types[Math.floor(Math.random() * types.length)],
+                directions[Math.floor(Math.random() * directions.length)]
+            );
+        }
+    }
+
+    // 1. Signal Timer Logic
+    state.signalTimer += dt;
+    if (state.signalTimer >= CONFIG.SIGNAL_DURATION && !state.waitingForDecision) {
+        makeDecision();
+    }
+
+    // 2. Queue Mechanics - Move vehicles when Green
+    if (state.currentGreenLane !== -1 && state.vehiclesToPass > 0) {
+        const lane = state.lanes[state.currentGreenLane];
+        const nextVehicle = lane.vehicles[0];
+
+        if (nextVehicle && nextVehicle.state === 'queued') {
+            nextVehicle.state = 'exiting';
+            nextVehicle.startX = nextVehicle.x;
+            nextVehicle.startY = nextVehicle.y;
+            nextVehicle.moveStartTime = currentTime;
+
+            // Set targets based on direction
+            // Visual coordinate system: queued vehicle moves from Right(pos) to Left(0) then Left(neg)
+            // Intersection is roughly at x=0 to x=-200
+            if (nextVehicle.direction === 'STRAIGHT') {
+                nextVehicle.targetX = -300; // Straight through
+                nextVehicle.targetY = 0;
+            } else if (nextVehicle.direction === 'LEFT') {
+                nextVehicle.targetX = -150;
+                nextVehicle.targetY = 150; // Curve down/left
+            } else if (nextVehicle.direction === 'RIGHT') {
+                nextVehicle.targetX = -150;
+                nextVehicle.targetY = -150; // Curve up/right
+            }
+
+            state.vehiclesToPass--;
+            state.stats.served++;
+
+            // Shift others
+            for (let i = 1; i < lane.vehicles.length; i++) {
+                const v = lane.vehicles[i];
+                if (v.state === 'queued') {
+                    v.state = 'shifting';
+                    v.startX = v.x;
+                    v.targetX = (i - 1) * (CONFIG.VEHICLE_WIDTH + CONFIG.VEHICLE_GAP);
+                    v.moveStartTime = currentTime;
+                }
+            }
+        }
+    }
+
+    // 3. Physics & Interpolation
+    state.lanes.forEach(lane => {
+        for (let i = lane.vehicles.length - 1; i >= 0; i--) {
+            const v = lane.vehicles[i];
+
+            if (v.state === 'queued') {
+                const properX = i * (CONFIG.VEHICLE_WIDTH + CONFIG.VEHICLE_GAP);
+                if (v.targetX !== properX) v.targetX = properX;
+
+                // Simple entry interpolation
+                if (Math.abs(v.x - v.targetX) > 1) {
+                    const approachSpeed = 0.5 * dt;
+                    if (v.x > v.targetX) v.x -= approachSpeed;
+                    if (v.x < v.targetX) v.x = v.targetX;
+                }
+            }
+            else if (v.state === 'exiting' || v.state === 'shifting') {
+                const elapsed = currentTime - v.moveStartTime;
+                const duration = v.state === 'exiting' ? CONFIG.VEHICLE_MOVE_DURATION : 800; // Faster shifts
+                const progress = Math.min(elapsed / duration, 1.0);
+
+                const ease = t => t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+                const p = ease(progress);
+
+                if (v.state === 'exiting') {
+                    // Turn Logic (Bezier-like interpolation)
+                    // For straight, just linear X
+                    if (v.direction === 'STRAIGHT') {
+                        v.x = v.startX + (v.targetX - v.startX) * p;
+                    } else {
+                        // Curve logic
+                        // Simple Quadratic Bezier: P0(start), P1(corner), P2(end)
+                        // Start: (startX, 0)
+                        // End: (targetX, targetY)
+                        // Control Point: (0, 0) -> The intersection center
+
+                        // We interpolate t from 0 to 1
+                        // B(t) = (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2
+                        // Actually, startX is > 0 (queue head at 0). exit is negative.
+                        // Let's assume start is x=0 (stop line)
+                        // Wait, simulation uses positive X for queue distance. Stop line is X=0.
+                        // Motion starts from X=0.
+
+                        // But physically, `v.x` was `v.startX` (which was 0 or near 0)
+                        // Let's refine P0. P0 = (v.startX, 0)
+                        const cx = -50; // Control point slighly into intersection
+                        const cy = v.direction === 'LEFT' ? 50 : -50;
+
+                        // X Calc
+                        v.x = Math.pow(1 - p, 2) * v.startX + 2 * (1 - p) * p * cx + Math.pow(p, 2) * v.targetX;
+                        // Y Calc
+                        v.y = Math.pow(1 - p, 2) * v.startY + 2 * (1 - p) * p * cy + Math.pow(p, 2) * v.targetY;
+                    }
+                } else {
+                    // Shifting is just linear X
+                    v.x = v.startX + (v.targetX - v.startX) * p;
+                }
+
+                if (progress >= 1.0) {
+                    if (v.state === 'exiting') {
+                        lane.vehicles.splice(i, 1);
+                    } else if (v.state === 'shifting') {
+                        v.state = 'queued';
+                    }
+                }
+            }
+        }
+    });
+}
+
+async function makeDecision() {
+    state.waitingForDecision = true;
+
+    // Use currently queued vehicles for decision
+    const payload = {
+        current_time: Math.floor(Date.now() / 1000),
+        ...state.scenario,
+        lanes: state.lanes.map(l => ({
+            id: l.id,
+            vehicles: l.vehicles
+                .filter(v => v.state === 'queued' || v.state === 'shifting')
+                .map(v => ({ type: v.type, arrival_time: Math.floor(v.arrivalTime / 1000) }))
+        }))
+    };
+
+    try {
+        const response = await fetch('/api/decide', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
         });
+
+        if (response.ok) {
+            const decision = await response.json();
+
+            if (decision.selected_lane !== state.currentGreenLane) {
+                state.stats.switches++;
+            }
+
+            state.currentGreenLane = decision.selected_lane;
+            state.vehiclesToPass = decision.num_vehicles_to_pass;
+
+            if (decision.priority_heap) {
+                updatePriorityViz(decision.priority_heap);
+            }
+        }
+    } catch (e) {
+        console.error("Backend decision failed", e);
+    } finally {
+        state.waitingForDecision = false;
+        state.signalTimer = 0;
     }
-
-    updatePriorityQueueTable(data);
-
-    if (data.scheduling_mode === 'ROUND_ROBIN') {
-        rrStats = {
-            avgWaitTime: data.performance_metrics.average_waiting_time,
-            served: data.performance_metrics.total_vehicles_served,
-            switches: data.performance_metrics.signal_switch_count
-        };
-    } else {
-        pqStats = {
-            avgWaitTime: data.performance_metrics.average_waiting_time,
-            served: data.performance_metrics.total_vehicles_served,
-            switches: data.performance_metrics.signal_switch_count
-        };
-    }
-
-    updateComparisonTable();
 }
 
-function updatePriorityQueueTable(data) {
+// ==================== RENDERING ====================
+function render() {
+    document.getElementById('vehicles-served').textContent = state.stats.served;
+    document.getElementById('signal-switches').textContent = state.stats.switches;
+
+    state.lanes.forEach(lane => {
+        const laneEl = document.getElementById(`lane-${lane.id}`);
+        // We need a specific visual container that allows XY translation
+        // Assuming .lane-queue structure from previous HTML
+        const queueEl = laneEl.querySelector('.lane-queue');
+
+        // Ensure styling supports 2D movement visually if needed
+        // Or we just translate X (distance from intersection) and Y (lateral offset)
+        // Since lanes are horizontal bars in UI, Y offset might look weird unless we rotate?
+        // Requirement says "Simple curves ... No physics required."
+        // We will just translate the div.
+
+        const header = laneEl.querySelector('.lane-header');
+        if (state.currentGreenLane === lane.id) {
+            header.classList.add('active');
+            header.style.backgroundColor = '#28a745';
+        } else {
+            header.classList.remove('active');
+            header.style.backgroundColor = '#333';
+        }
+
+        const domMap = new Map();
+        queueEl.querySelectorAll('.vehicle').forEach(el => domMap.set(el.dataset.id, el));
+
+        lane.vehicles.forEach(v => {
+            let el = domMap.get(v.id);
+            if (!el) {
+                el = document.createElement('div');
+                el.className = `vehicle ${v.type}`;
+                el.dataset.id = v.id;
+                el.dataset.type = v.type;
+                el.textContent = v.id;
+                el.style.position = 'absolute';
+                // Add direction indicator
+                const dirArrow = document.createElement('span');
+                dirArrow.className = 'dir-arrow';
+                dirArrow.textContent = v.direction === 'LEFT' ? '↰' : v.direction === 'RIGHT' ? '↱' : '↑';
+                dirArrow.style.fontSize = '8px';
+                dirArrow.style.color = 'black';
+                dirArrow.style.marginLeft = '2px';
+                el.appendChild(dirArrow);
+
+                queueEl.appendChild(el);
+            }
+
+            // Visual Positioning
+            // X is "distance from stop line". Visual Queue flows Right->Left.
+            // Queue head is near left edge.
+            // Let's assume queueEl is the "road".
+            // Stop line is at left: 20px.
+            // v.x is distance from stopline.
+            // So left = 20 + v.x.
+
+            // For turns (Y offset), we simply translate Y.
+            // Note: This relies on overflow: visible to see turns "outside" the lane?
+            // Or just implied within lane width.
+
+            // Actually, "Left/Right" turns cross lanes.
+            // For simple visualization without full map:
+            // Just animate them moving and rotating slightly.
+
+            el.style.left = `${20 + v.x}px`;
+            el.style.top = `${10 + (v.y || 0)}px`; // Center is roughly 10px top padding + y
+
+            if (v.state === 'exiting') {
+                el.style.opacity = Math.max(0.2, 1 - (Math.abs(v.x) / 200));
+                // Rotate based on direction
+                let rot = 0;
+                if (v.direction === 'LEFT') rot = -45 * (Math.abs(v.x) / 100);
+                if (v.direction === 'RIGHT') rot = 45 * (Math.abs(v.x) / 100);
+                el.style.transform = `rotate(${rot}deg)`;
+            } else {
+                el.style.opacity = 1;
+                el.style.transform = 'none';
+            }
+
+            domMap.delete(v.id);
+        });
+
+        domMap.forEach(el => el.remove());
+        queueEl.style.position = 'relative';
+        queueEl.style.overflow = 'visible'; // Allow turns to be seen
+    });
+}
+
+function updatePriorityViz(heap) {
     const tbody = document.querySelector('#priority-queue-table tbody');
     tbody.innerHTML = '';
 
-    const selectedLaneId = data.selected_lane;
+    if (!heap || !Array.isArray(heap)) return;
 
-    if (data.priority_heap && data.priority_heap.length > 0) {
-        data.priority_heap.forEach((node, index) => {
-            const lane = data.lanes[node.lane_id];
-            const row = document.createElement('tr');
+    heap.forEach((node, idx) => {
+        const row = document.createElement('tr');
+        if (node.lane_id === state.currentGreenLane) {
+            row.classList.add('selected-row');
+        }
 
-            // Highlight if this is the selected lane
-            // Note: In priority scheduling, the selected lane is usually the top of the heap.
-            // But we check against data.selected_lane to be sure.
-            if (node.lane_id === selectedLaneId) {
-                row.classList.add('selected-row');
-            }
+        const lane = state.lanes[node.lane_id];
+        const queuedVehicles = lane ? lane.vehicles.filter(v => v.state === 'queued' || v.state === 'shifting') : [];
+        const topV = queuedVehicles[0];
 
-            const topVehicle = lane.vehicles.length > 0 ?
-                `${lane.vehicles[0].vehicle_number} (${lane.vehicles[0].type})` :
-                '-';
+        let topText = '-';
+        if (topV) {
+            topText = `${topV.id} (${topV.type}) [${topV.direction[0]}]`;
+        }
 
-            row.innerHTML = `
-                <td>${index + 1}</td>
-                <td>Lane ${node.lane_id}</td>
-                <td>${node.priority}</td>
-                <td>${lane.queue_length}</td>
-                <td>${topVehicle}</td>
-            `;
-            tbody.appendChild(row);
-        });
-    } else {
-        data.lanes.forEach((lane, index) => {
-            const row = document.createElement('tr');
-
-            if (lane.lane_id === selectedLaneId) {
-                row.classList.add('selected-row');
-            }
-
-            const topVehicle = lane.vehicles.length > 0 ?
-                `${lane.vehicles[0].vehicle_number} (${lane.vehicles[0].type})` :
-                '-';
-
-            row.innerHTML = `
-                <td>${index + 1}</td>
-                <td>Lane ${lane.lane_id}</td>
-                <td>${lane.priority}</td>
-                <td>${lane.queue_length}</td>
-                <td>${topVehicle}</td>
-            `;
-            tbody.appendChild(row);
-        });
-    }
+        row.innerHTML = `
+            <td>${idx + 1}</td>
+            <td>Lane ${node.lane_id}</td>
+            <td>${node.priority}</td>
+            <td>${queuedVehicles.length}</td>
+            <td>${topText}</td>
+        `;
+        tbody.appendChild(row);
+    });
 }
-
-function updateComparisonTable() {
-    document.getElementById('rr-wait').textContent = rrStats.avgWaitTime.toFixed(1);
-    document.getElementById('rr-served').textContent = rrStats.served;
-    document.getElementById('rr-switches').textContent = rrStats.switches;
-
-    document.getElementById('pq-wait').textContent = pqStats.avgWaitTime.toFixed(1);
-    document.getElementById('pq-served').textContent = pqStats.served;
-    document.getElementById('pq-switches').textContent = pqStats.switches;
-}
-
-

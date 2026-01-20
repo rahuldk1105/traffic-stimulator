@@ -1,21 +1,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <unistd.h>
-#endif
-
-#define MAX_VEHICLE_NUMBER 20
-#define HASH_TABLE_SIZE 101
-#define HASH_PRIME 97
-#define MAX_HEAP_SIZE 100
+#define MAX_BUFFER 65536
+#define MAX_VEHICLES_PER_LANE 100
 #define NUM_LANES 4
+#define TIME_SLICE 2
+#define MAX_HEAP_SIZE 100
 
-// ============= VEHICLE STRUCTURE =============
+// ============= DATA STRUCTURES =============
 
 typedef enum {
     NORMAL,
@@ -26,315 +19,17 @@ typedef enum {
     POLICE
 } VehicleType;
 
-typedef enum {
-    LEFT,
-    RIGHT,
-    STRAIGHT
-} Direction;
-
 typedef struct {
-    char vehicle_number[MAX_VEHICLE_NUMBER];
+    char id[32];
     VehicleType type;
     int arrival_time;
-    Direction direction;
 } Vehicle;
 
-// ============= LANE QUEUE (FIFO) =============
-
-typedef struct QueueNode {
-    Vehicle vehicle;
-    struct QueueNode* next;
-} QueueNode;
-
 typedef struct {
-    QueueNode* front;
-    QueueNode* rear;
-    int size;
-} LaneQueue;
-
-LaneQueue* createLaneQueue() {
-    LaneQueue* queue = (LaneQueue*)malloc(sizeof(LaneQueue));
-    queue->front = NULL;
-    queue->rear = NULL;
-    queue->size = 0;
-    return queue;
-}
-
-int isQueueEmpty(LaneQueue* queue) {
-    return queue->front == NULL;
-}
-
-void enqueue(LaneQueue* queue, Vehicle vehicle) {
-    QueueNode* newNode = (QueueNode*)malloc(sizeof(QueueNode));
-    newNode->vehicle = vehicle;
-    newNode->next = NULL;
-
-    if (isQueueEmpty(queue)) {
-        queue->front = newNode;
-        queue->rear = newNode;
-    } else {
-        queue->rear->next = newNode;
-        queue->rear = newNode;
-    }
-    queue->size++;
-}
-
-Vehicle dequeue(LaneQueue* queue) {
-    Vehicle vehicle;
-    if (isQueueEmpty(queue)) {
-        memset(&vehicle, 0, sizeof(Vehicle));
-        return vehicle;
-    }
-
-    QueueNode* temp = queue->front;
-    vehicle = temp->vehicle;
-    queue->front = queue->front->next;
-
-    if (queue->front == NULL) {
-        queue->rear = NULL;
-    }
-
-    free(temp);
-    queue->size--;
-    return vehicle;
-}
-
-Vehicle peek(LaneQueue* queue) {
-    Vehicle vehicle;
-    if (isQueueEmpty(queue)) {
-        memset(&vehicle, 0, sizeof(Vehicle));
-        return vehicle;
-    }
-    return queue->front->vehicle;
-}
-
-// ============= PRIORITY QUEUE (MAX HEAP) =============
-
-typedef struct {
-    int lane_id;
-    int priority_value;
-} HeapNode;
-
-typedef struct {
-    HeapNode nodes[MAX_HEAP_SIZE];
-    int size;
-} PriorityQueue;
-
-PriorityQueue* createPriorityQueue() {
-    PriorityQueue* pq = (PriorityQueue*)malloc(sizeof(PriorityQueue));
-    pq->size = 0;
-    return pq;
-}
-
-void swap(HeapNode* a, HeapNode* b) {
-    HeapNode temp = *a;
-    *a = *b;
-    *b = temp;
-}
-
-void heapifyUp(PriorityQueue* pq, int index) {
-    if (index == 0) return;
-
-    int parent = (index - 1) / 2;
-
-    if (pq->nodes[index].priority_value > pq->nodes[parent].priority_value) {
-        swap(&pq->nodes[index], &pq->nodes[parent]);
-        heapifyUp(pq, parent);
-    }
-}
-
-void heapifyDown(PriorityQueue* pq, int index) {
-    int largest = index;
-    int left = 2 * index + 1;
-    int right = 2 * index + 2;
-
-    if (left < pq->size && pq->nodes[left].priority_value > pq->nodes[largest].priority_value) {
-        largest = left;
-    }
-
-    if (right < pq->size && pq->nodes[right].priority_value > pq->nodes[largest].priority_value) {
-        largest = right;
-    }
-
-    if (largest != index) {
-        swap(&pq->nodes[index], &pq->nodes[largest]);
-        heapifyDown(pq, largest);
-    }
-}
-
-void insertHeap(PriorityQueue* pq, int lane_id, int priority_value) {
-    if (pq->size >= MAX_HEAP_SIZE) {
-        return;
-    }
-
-    pq->nodes[pq->size].lane_id = lane_id;
-    pq->nodes[pq->size].priority_value = priority_value;
-    heapifyUp(pq, pq->size);
-    pq->size++;
-}
-
-HeapNode extractMax(PriorityQueue* pq) {
-    HeapNode maxNode;
-    if (pq->size == 0) {
-        maxNode.lane_id = -1;
-        maxNode.priority_value = -1;
-        return maxNode;
-    }
-
-    maxNode = pq->nodes[0];
-    pq->nodes[0] = pq->nodes[pq->size - 1];
-    pq->size--;
-
-    if (pq->size > 0) {
-        heapifyDown(pq, 0);
-    }
-
-    return maxNode;
-}
-
-// ============= HASH TABLE (DOUBLE HASHING) =============
-
-typedef struct {
-    Vehicle vehicle;
-    int occupied;
-} HashEntry;
-
-typedef struct {
-    HashEntry entries[HASH_TABLE_SIZE];
-} HashTable;
-
-HashTable* createHashTable() {
-    HashTable* table = (HashTable*)malloc(sizeof(HashTable));
-    for (int i = 0; i < HASH_TABLE_SIZE; i++) {
-        table->entries[i].occupied = 0;
-    }
-    return table;
-}
-
-int hash1(char* vehicle_number) {
-    int sum = 0;
-    for (int i = 0; vehicle_number[i] != '\0'; i++) {
-        sum += (int)vehicle_number[i];
-    }
-    return sum % HASH_TABLE_SIZE;
-}
-
-int hash2(char* vehicle_number) {
-    int sum = 0;
-    for (int i = 0; vehicle_number[i] != '\0'; i++) {
-        sum += (int)vehicle_number[i];
-    }
-    return HASH_PRIME - (sum % HASH_PRIME);
-}
-
-void insertHash(HashTable* table, Vehicle vehicle) {
-    int index = hash1(vehicle.vehicle_number);
-    int step = hash2(vehicle.vehicle_number);
-    int i = 0;
-
-    while (table->entries[index].occupied && i < HASH_TABLE_SIZE) {
-        index = (index + step) % HASH_TABLE_SIZE;
-        i++;
-    }
-
-    if (i < HASH_TABLE_SIZE) {
-        table->entries[index].vehicle = vehicle;
-        table->entries[index].occupied = 1;
-    }
-}
-
-Vehicle* searchHash(HashTable* table, char* vehicle_number) {
-    int index = hash1(vehicle_number);
-    int step = hash2(vehicle_number);
-    int i = 0;
-
-    while (i < HASH_TABLE_SIZE) {
-        if (table->entries[index].occupied &&
-            strcmp(table->entries[index].vehicle.vehicle_number, vehicle_number) == 0) {
-            return &table->entries[index].vehicle;
-        }
-
-        if (!table->entries[index].occupied) {
-            return NULL;
-        }
-
-        index = (index + step) % HASH_TABLE_SIZE;
-        i++;
-    }
-
-    return NULL;
-}
-
-// ============= MULTI-LANE SYSTEM =============
-
-typedef struct {
-    int lane_id;
-    LaneQueue* queue;
-    HashTable* hashTable;
+    Vehicle* vehicles[MAX_VEHICLES_PER_LANE];
+    int count;
+    int id;
 } Lane;
-
-typedef struct {
-    Lane lanes[NUM_LANES];
-} TrafficSystem;
-
-TrafficSystem* createTrafficSystem() {
-    TrafficSystem* system = (TrafficSystem*)malloc(sizeof(TrafficSystem));
-
-    for (int i = 0; i < NUM_LANES; i++) {
-        system->lanes[i].lane_id = i;
-        system->lanes[i].queue = createLaneQueue();
-        system->lanes[i].hashTable = createHashTable();
-    }
-
-    return system;
-}
-
-void addVehicleToLane(TrafficSystem* system, Vehicle vehicle, int lane_id) {
-    if (lane_id < 0 || lane_id >= NUM_LANES) {
-        return;
-    }
-
-    enqueue(system->lanes[lane_id].queue, vehicle);
-    insertHash(system->lanes[lane_id].hashTable, vehicle);
-}
-
-Vehicle removeVehicleFromLane(TrafficSystem* system, int lane_id) {
-    Vehicle vehicle;
-
-    if (lane_id < 0 || lane_id >= NUM_LANES) {
-        memset(&vehicle, 0, sizeof(Vehicle));
-        return vehicle;
-    }
-
-    vehicle = dequeue(system->lanes[lane_id].queue);
-    return vehicle;
-}
-
-Vehicle* lookupVehicleByNumber(TrafficSystem* system, char* vehicle_number) {
-    for (int i = 0; i < NUM_LANES; i++) {
-        Vehicle* vehicle = searchHash(system->lanes[i].hashTable, vehicle_number);
-        if (vehicle != NULL) {
-            return vehicle;
-        }
-    }
-
-    return NULL;
-}
-
-// ============= PRIORITY CALCULATION =============
-
-#define PRIORITY_AMBULANCE 1000
-#define PRIORITY_FIRE 900
-#define PRIORITY_POLICE 800
-#define PRIORITY_VIP 500
-#define PRIORITY_BUS_SCHOOL_ZONE 300
-#define PRIORITY_MAIN_ROAD 200
-#define PRIORITY_ACCIDENT 400
-#define PRIORITY_PEDESTRIAN_CROSSING 250
-#define PRIORITY_RUSH_HOUR 150
-#define PRIORITY_HEAVY_WEATHER 100
-#define BASE_PRIORITY_PER_VEHICLE 10
-#define BASE_PRIORITY_PER_SECOND 5
 
 typedef struct {
     int is_main_road;
@@ -345,538 +40,361 @@ typedef struct {
     int has_pedestrian_crossing;
 } ScenarioFlags;
 
-int getVehiclePriority(Vehicle vehicle, ScenarioFlags* flags) {
-    int priority = 0;
-
-    switch (vehicle.type) {
-        case AMBULANCE:
-            priority = PRIORITY_AMBULANCE;
-            break;
-        case FIRE:
-            priority = PRIORITY_FIRE;
-            break;
-        case POLICE:
-            priority = PRIORITY_POLICE;
-            break;
-        case VIP:
-            priority = PRIORITY_VIP;
-            break;
-        case BUS:
-            if (flags && flags->is_school_zone) {
-                priority = PRIORITY_BUS_SCHOOL_ZONE;
-            }
-            break;
-        case NORMAL:
-        default:
-            priority = 0;
-            break;
-    }
-
-    return priority;
-}
-
-int getMaxVehiclePriorityInLane(LaneQueue* queue, ScenarioFlags* flags) {
-    if (isQueueEmpty(queue)) {
-        return 0;
-    }
-
-    int maxPriority = 0;
-    QueueNode* current = queue->front;
-
-    while (current != NULL) {
-        int vehiclePriority = getVehiclePriority(current->vehicle, flags);
-        if (vehiclePriority > maxPriority) {
-            maxPriority = vehiclePriority;
-        }
-        current = current->next;
-    }
-
-    return maxPriority;
-}
-
-int getAverageWaitingTime(LaneQueue* queue, int current_time) {
-    if (isQueueEmpty(queue)) {
-        return 0;
-    }
-
-    int totalWaitTime = 0;
-    int count = 0;
-    QueueNode* current = queue->front;
-
-    while (current != NULL) {
-        int waitTime = current_time - current->vehicle.arrival_time;
-        if (waitTime < 0) {
-            waitTime = 0;
-        }
-        totalWaitTime += waitTime;
-        count++;
-        current = current->next;
-    }
-
-    return count > 0 ? totalWaitTime / count : 0;
-}
-
-int calculateLanePriority(TrafficSystem* system, int lane_id, ScenarioFlags* flags, int current_time) {
-    if (lane_id < 0 || lane_id >= NUM_LANES) {
-        return 0;
-    }
-
-    Lane* lane = &system->lanes[lane_id];
-    int priority = 0;
-
-    int queueLength = lane->queue->size;
-    int avgWaitTime = getAverageWaitingTime(lane->queue, current_time);
-
-    priority += queueLength * BASE_PRIORITY_PER_VEHICLE;
-    priority += avgWaitTime * BASE_PRIORITY_PER_SECOND;
-
-    int maxVehiclePriority = getMaxVehiclePriorityInLane(lane->queue, flags);
-    priority += maxVehiclePriority;
-
-    if (flags) {
-        if (flags->is_main_road) {
-            priority += PRIORITY_MAIN_ROAD;
-        }
-
-        if (flags->is_accident) {
-            priority += PRIORITY_ACCIDENT;
-        }
-
-        if (flags->has_pedestrian_crossing) {
-            priority += PRIORITY_PEDESTRIAN_CROSSING;
-        }
-
-        if (flags->is_rush_hour) {
-            priority += PRIORITY_RUSH_HOUR;
-        }
-
-        if (flags->is_heavy_weather) {
-            QueueNode* current = lane->queue->front;
-            while (current != NULL) {
-                if (current->vehicle.type == BUS) {
-                    priority += PRIORITY_HEAVY_WEATHER;
-                    break;
-                }
-                current = current->next;
-            }
-        }
-    }
-
-    return priority;
-}
-
-// ============= SCHEDULING ALGORITHMS =============
-
-typedef enum {
-    ROUND_ROBIN,
-    PRIORITY_QUEUE_SCHEDULING
-} SchedulingMode;
+typedef struct {
+    Lane lanes[NUM_LANES];
+    ScenarioFlags flags;
+    int current_time;
+} TrafficState;
 
 typedef struct {
-    int total_vehicles_served;
-    int total_waiting_time;
-    int signal_switch_count;
-    int current_lane;
-    PriorityQueue* last_pq; // Store latest PQ for visualization
-} SchedulingStats;
-
-SchedulingStats* createSchedulingStats() {
-    SchedulingStats* stats = (SchedulingStats*)malloc(sizeof(SchedulingStats));
-    stats->total_vehicles_served = 0;
-    stats->total_waiting_time = 0;
-    stats->signal_switch_count = 0;
-    stats->current_lane = 0;
-    stats->last_pq = NULL;
-    return stats;
-}
-
-int scheduleRoundRobin(TrafficSystem* system, SchedulingStats* stats, int time_slice, int current_time) {
-    int vehiclesProcessed = 0;
-    int startLane = stats->current_lane;
-    int nextLane = startLane;
-
-    for (int i = 0; i < NUM_LANES; i++) {
-        int lane_id = (startLane + i) % NUM_LANES;
-        Lane* lane = &system->lanes[lane_id];
-
-        if (!isQueueEmpty(lane->queue)) {
-            nextLane = lane_id;
-            break;
-        }
-    }
-
-    if (nextLane != stats->current_lane) {
-        stats->signal_switch_count++;
-        stats->current_lane = nextLane;
-    }
-
-    Lane* currentLane = &system->lanes[stats->current_lane];
-    int timeUsed = 0;
-
-    while (timeUsed < time_slice && !isQueueEmpty(currentLane->queue)) {
-        Vehicle vehicle = dequeue(currentLane->queue);
-
-        int waitingTime = current_time - vehicle.arrival_time;
-        if (waitingTime < 0) {
-            waitingTime = 0;
-        }
-
-        stats->total_waiting_time += waitingTime;
-        stats->total_vehicles_served++;
-        vehiclesProcessed++;
-
-        timeUsed++;
-    }
-
-    stats->current_lane = (stats->current_lane + 1) % NUM_LANES;
-    
-    // Clear last PQ since RR doesn't use it, but for JSON consistency we might want to show empty or NULL
-    if (stats->last_pq) {
-        free(stats->last_pq);
-        stats->last_pq = NULL;
-    }
-
-    return vehiclesProcessed;
-}
-
-int schedulePriorityQueue(TrafficSystem* system, SchedulingStats* stats, ScenarioFlags* flags, int time_slice, int current_time) {
-    int vehiclesProcessed = 0;
-
-    PriorityQueue* pq = createPriorityQueue();
-
-    for (int i = 0; i < NUM_LANES; i++) {
-        if (!isQueueEmpty(system->lanes[i].queue)) {
-            int priority = calculateLanePriority(system, i, flags, current_time);
-            insertHeap(pq, i, priority);
-        }
-    }
-
-    // Save PQ state for visualization before extracting max
-    if (stats->last_pq) {
-        free(stats->last_pq);
-    }
-    stats->last_pq = createPriorityQueue();
-    // Copy content
-    memcpy(stats->last_pq, pq, sizeof(PriorityQueue));
-
-    if (pq->size == 0) {
-        free(pq);
-        return 0;
-    }
-
-    HeapNode maxNode = extractMax(pq);
-    int selectedLane = maxNode.lane_id;
-
-    if (selectedLane != stats->current_lane) {
-        stats->signal_switch_count++;
-        stats->current_lane = selectedLane;
-    }
-
-    Lane* currentLane = &system->lanes[selectedLane];
-    int timeUsed = 0;
-
-    while (timeUsed < time_slice && !isQueueEmpty(currentLane->queue)) {
-        Vehicle vehicle = dequeue(currentLane->queue);
-
-        int waitingTime = current_time - vehicle.arrival_time;
-        if (waitingTime < 0) {
-            waitingTime = 0;
-        }
-
-        stats->total_waiting_time += waitingTime;
-        stats->total_vehicles_served++;
-        vehiclesProcessed++;
-
-        timeUsed++;
-    }
-
-    free(pq);
-    return vehiclesProcessed;
-}
-
-int schedule(TrafficSystem* system, SchedulingStats* stats, SchedulingMode mode, ScenarioFlags* flags, int time_slice, int current_time) {
-    if (mode == ROUND_ROBIN) {
-        return scheduleRoundRobin(system, stats, time_slice, current_time);
-    } else if (mode == PRIORITY_QUEUE_SCHEDULING) {
-        return schedulePriorityQueue(system, stats, flags, time_slice, current_time);
-    }
-
-    return 0;
-}
-
-// ============= PERFORMANCE COMPARISON =============
+    int lane_id;
+    int priority_value;
+    int avg_wait;
+} HeapNode;
 
 typedef struct {
-    int found;
-    int probes;
-    double time_microseconds;
-} SearchResult;
+    HeapNode nodes[MAX_HEAP_SIZE];
+    int size;
+} PriorityQueue;
 
-SearchResult linearSearchInLane(LaneQueue* queue, char* vehicle_number) {
-    SearchResult result;
-    result.found = 0;
-    result.probes = 0;
-    result.time_microseconds = 0.0;
+// ============= CONSTANTS =============
 
-    clock_t start = clock();
+#define BASE_WEIGHT 10
 
-    QueueNode* current = queue->front;
-    while (current != NULL) {
-        result.probes++;
-        if (strcmp(current->vehicle.vehicle_number, vehicle_number) == 0) {
-            result.found = 1;
-            break;
-        }
-        current = current->next;
-    }
+// Vehicle Priorities (Rule 2 & 3)
+#define PRIORITY_AMBULANCE 10000
+#define PRIORITY_FIRE 7000
+#define PRIORITY_POLICE 5000
+#define PRIORITY_VIP 3000
 
-    clock_t end = clock();
-    result.time_microseconds = ((double)(end - start) / CLOCKS_PER_SEC) * 1000000.0;
+// Scenario Adjustments (Rules 4-9)
+#define ADJUSTMENT_ACCIDENT -4000
+#define ADJUSTMENT_SCHOOL_BUS 2000
+#define ADJUSTMENT_WEATHER_HEAVY 1500
+#define ADJUSTMENT_PEDESTRIAN -2000
+#define ADJUSTMENT_MAIN_ROAD 1000
 
-    return result;
+// ============= PRIORITY QUEUE UTILS =============
+
+void swap(HeapNode* a, HeapNode* b) {
+    HeapNode temp = *a;
+    *a = *b;
+    *b = temp;
 }
 
-SearchResult hashTableSearch(HashTable* table, char* vehicle_number) {
-    SearchResult result;
-    result.found = 0;
-    result.probes = 0;
-    result.time_microseconds = 0.0;
-
-    clock_t start = clock();
-
-    int index = hash1(vehicle_number);
-    int step = hash2(vehicle_number);
-    int i = 0;
-
-    while (i < HASH_TABLE_SIZE) {
-        result.probes++;
-
-        if (table->entries[index].occupied &&
-            strcmp(table->entries[index].vehicle.vehicle_number, vehicle_number) == 0) {
-            result.found = 1;
-            break;
-        }
-
-        if (!table->entries[index].occupied) {
-            break;
-        }
-
-        index = (index + step) % HASH_TABLE_SIZE;
-        i++;
+// Compare two nodes based on Rule 10: Tie-breaking
+// Returns 1 if 'a' has higher priority than 'b', 0 otherwise
+int compareNodes(HeapNode a, HeapNode b) {
+    if (a.priority_value != b.priority_value) {
+        return a.priority_value > b.priority_value;
     }
-
-    clock_t end = clock();
-    result.time_microseconds = ((double)(end - start) / CLOCKS_PER_SEC) * 1000000.0;
-
-    return result;
+    // Tie case: select lane with highest average waiting time
+    return a.avg_wait > b.avg_wait;
 }
 
-int getAsciiSum(char* vehicle_number) {
-    int sum = 0;
-    for (int i = 0; vehicle_number[i] != '\0'; i++) {
-        sum += (int)vehicle_number[i];
-    }
-    return sum;
-}
-
-
-// ============= JSON OUTPUT =============
-
-const char* vehicleTypeToString(VehicleType type) {
-    switch (type) {
-        case NORMAL: return "NORMAL";
-        case BUS: return "BUS";
-        case VIP: return "VIP";
-        case AMBULANCE: return "AMBULANCE";
-        case FIRE: return "FIRE";
-        case POLICE: return "POLICE";
-        default: return "UNKNOWN";
+void heapifyUp(PriorityQueue* pq, int index) {
+    if (index == 0) return;
+    int parent = (index - 1) / 2;
+    // Max heap based on compareNodes logic
+    if (compareNodes(pq->nodes[index], pq->nodes[parent])) {
+        swap(&pq->nodes[index], &pq->nodes[parent]);
+        heapifyUp(pq, parent);
     }
 }
 
-const char* directionToString(Direction direction) {
-    switch (direction) {
-        case LEFT: return "LEFT";
-        case RIGHT: return "RIGHT";
-        case STRAIGHT: return "STRAIGHT";
-        default: return "UNKNOWN";
+void heapifyDown(PriorityQueue* pq, int index) {
+    int largest = index;
+    int left = 2 * index + 1;
+    int right = 2 * index + 2;
+
+    if (left < pq->size && compareNodes(pq->nodes[left], pq->nodes[largest])) {
+        largest = left;
+    }
+
+    if (right < pq->size && compareNodes(pq->nodes[right], pq->nodes[largest])) {
+        largest = right;
+    }
+
+    if (largest != index) {
+        swap(&pq->nodes[index], &pq->nodes[largest]);
+        heapifyDown(pq, largest);
     }
 }
 
-const char* schedulingModeToString(SchedulingMode mode) {
-    switch (mode) {
-        case ROUND_ROBIN: return "ROUND_ROBIN";
-        case PRIORITY_QUEUE_SCHEDULING: return "PRIORITY_QUEUE_SCHEDULING";
-        default: return "UNKNOWN";
-    }
+void insertHeap(PriorityQueue* pq, int lane_id, int priority_value, int avg_wait) {
+    if (pq->size >= MAX_HEAP_SIZE) return;
+    pq->nodes[pq->size].lane_id = lane_id;
+    pq->nodes[pq->size].priority_value = priority_value;
+    pq->nodes[pq->size].avg_wait = avg_wait;
+    heapifyUp(pq, pq->size);
+    pq->size++;
 }
 
-void printVehicleJSON(Vehicle vehicle) {
-    printf("{\"vehicle_number\":\"%s\",\"type\":\"%s\",\"arrival_time\":%d,\"direction\":\"%s\"}",
-        vehicle.vehicle_number, vehicleTypeToString(vehicle.type), vehicle.arrival_time, directionToString(vehicle.direction));
+// Ensure strict ordering extraction if needed, but array print loop is often sufficient for visualization if sorted.
+// However, the standard array representation of a heap is not fully sorted, it's just a tree.
+// To satisfy "return full priority queue as an ordered list", we should sort the output (or extract all).
+// Let's implement extractMax to build a sorted list for output.
+HeapNode extractMax(PriorityQueue* pq) {
+    HeapNode maxNode = pq->nodes[0];
+    pq->nodes[0] = pq->nodes[pq->size - 1];
+    pq->size--;
+    if (pq->size > 0) heapifyDown(pq, 0);
+    return maxNode;
 }
 
-void printLaneStateJSON(TrafficSystem* system, int lane_id, ScenarioFlags* flags, int current_time) {
-    Lane* lane = &system->lanes[lane_id];
-    int priority = calculateLanePriority(system, lane_id, flags, current_time);
-    int queueLength = lane->queue->size;
+// ============= PARSING UTILS (Naive JSON parser) =============
 
-    printf("{\"lane_id\":%d,\"priority\":%d,\"queue_length\":%d,\"vehicles\":[",
-        lane_id, priority, queueLength);
-
-    QueueNode* current = lane->queue->front;
-    int first = 1;
-    while (current != NULL) {
-        if (!first) {
-            printf(",");
-        }
-        first = 0;
-        printVehicleJSON(current->vehicle);
-        current = current->next;
-    }
-
-    printf("]}");
+char* find_key(char* json, const char* key) {
+    char search[64];
+    sprintf(search, "\"%s\"", key);
+    char* pos = strstr(json, search);
+    if (!pos) return NULL;
+    pos += strlen(search);
+    while (*pos == ':' || *pos == ' ' || *pos == '\t' || *pos == '\n' || *pos == '\"') pos++;
+    return pos;
 }
 
-void printPriorityQueueJSON(PriorityQueue* pq) {
-    printf("\"priority_heap\":[");
-    if (pq != NULL) {
-        // Since it's a heap, we can just print the array order which represents the tree
-        for (int i = 0; i < pq->size; i++) {
-            if (i > 0) printf(",");
-            printf("{\"lane_id\":%d,\"priority\":%d}", pq->nodes[i].lane_id, pq->nodes[i].priority_value);
-        }
-    }
-    printf("],");
+int parse_bool(char* json, const char* key) {
+    char* val = find_key(json, key);
+    if (!val) return 0;
+    return (strncmp(val, "true", 4) == 0);
 }
 
-void printSimulationStateJSON(TrafficSystem* system, SchedulingStats* stats, SchedulingMode mode, ScenarioFlags* flags, int current_time, int vehicles_moved) {
-    printf("{\"current_time\":%d,\"scheduling_mode\":\"%s\",\"selected_lane\":%d,\"vehicles_moved_this_cycle\":%d,",
-        current_time, schedulingModeToString(mode), stats->current_lane, vehicles_moved);
-
-    printPriorityQueueJSON(stats->last_pq);
-
-    printf("\"performance_metrics\":{\"total_vehicles_served\":%d,\"total_waiting_time\":%d,\"average_waiting_time\":%.2f,\"signal_switch_count\":%d},",
-        stats->total_vehicles_served, stats->total_waiting_time,
-        stats->total_vehicles_served > 0 ? (double)stats->total_waiting_time / stats->total_vehicles_served : 0.0,
-        stats->signal_switch_count);
-
-    printf("\"scenario_flags\":{");
-    if (flags) {
-        printf("\"is_main_road\":%s,", flags->is_main_road ? "true" : "false");
-        printf("\"is_accident\":%s,", flags->is_accident ? "true" : "false");
-        printf("\"is_school_zone\":%s,", flags->is_school_zone ? "true" : "false");
-        printf("\"is_heavy_weather\":%s,", flags->is_heavy_weather ? "true" : "false");
-        printf("\"is_rush_hour\":%s,", flags->is_rush_hour ? "true" : "false");
-        printf("\"has_pedestrian_crossing\":%s", flags->has_pedestrian_crossing ? "true" : "false");
-    } else {
-        printf("\"is_main_road\":false,\"is_accident\":false,\"is_school_zone\":false,\"is_heavy_weather\":false,\"is_rush_hour\":false,\"has_pedestrian_crossing\":false");
-    }
-    printf("},");
-
-    printf("\"lanes\":[");
-    for (int i = 0; i < NUM_LANES; i++) {
-        printLaneStateJSON(system, i, flags, current_time);
-        if (i < NUM_LANES - 1) {
-            printf(",");
-        }
-    }
-    printf("]}\n");
-    fflush(stdout);
+int parse_int(char* json, const char* key) {
+    char* val = find_key(json, key);
+    if (!val) return 0;
+    return atoi(val);
 }
 
-void printSearchResultJSON(char* vehicle_number, SearchResult linearResult, SearchResult hashResult, int lane_id) {
-    printf("{\"vehicle_number\":\"%s\",\"lane_id\":%d,\"ascii_sum\":%d,\"hash1_index\":%d,\"hash2_step\":%d,",
-        vehicle_number, lane_id, getAsciiSum(vehicle_number), hash1(vehicle_number), hash2(vehicle_number));
+VehicleType parse_type(char* type_str) {
+    if (strstr(type_str, "AMBULANCE")) return AMBULANCE;
+    if (strstr(type_str, "FIRE")) return FIRE;
+    if (strstr(type_str, "POLICE")) return POLICE;
+    if (strstr(type_str, "VIP")) return VIP;
+    if (strstr(type_str, "BUS")) return BUS;
+    return NORMAL;
+}
 
-    printf("\"linear_search\":{\"found\":%s,\"probes\":%d,\"time_microseconds\":%.6f},",
-        linearResult.found ? "true" : "false", linearResult.probes, linearResult.time_microseconds);
-
-    printf("\"hash_table_search\":{\"found\":%s,\"probes\":%d,\"time_microseconds\":%.6f}",
-        hashResult.found ? "true" : "false", hashResult.probes, hashResult.time_microseconds);
+void parse_input(char* json, TrafficState* state) {
+    state->flags.is_main_road = parse_bool(json, "is_main_road");
+    state->flags.is_accident = parse_bool(json, "is_accident");
+    state->flags.is_school_zone = parse_bool(json, "is_school_zone");
+    state->flags.is_heavy_weather = parse_bool(json, "is_heavy_weather");
+    state->flags.is_rush_hour = parse_bool(json, "is_rush_hour");
+    state->flags.has_pedestrian_crossing = parse_bool(json, "has_pedestrian_crossing");
     
-    if (linearResult.found && hashResult.found && linearResult.time_microseconds > 0) {
-        printf(",\"performance\":{\"speedup\":%.2f,\"probe_reduction_percent\":%.1f}",
-             linearResult.time_microseconds / hashResult.time_microseconds,
-             ((linearResult.probes - hashResult.probes) / (double)linearResult.probes) * 100.0);
-    }
+    state->current_time = parse_int(json, "current_time");
 
-    printf("}\n");
-    fflush(stdout);
-}
-
-// ============= COMMAND-LINE ARGUMENT PARSING =============
-
-int main(int argc, char* argv[]) {
-    ScenarioFlags flags = {0, 0, 0, 0, 0, 0};
-    SchedulingMode mode = PRIORITY_QUEUE_SCHEDULING;
-    int simulation_steps = 10;
-    int time_slice = 2;
-
-    for (int i = 1; i < argc; i++) {
-        if (strcmp(argv[i], "--emergency") == 0) {
-            flags.is_accident = 1;
-        } else if (strcmp(argv[i], "--accident") == 0) {
-            flags.is_accident = 1;
-        } else if (strcmp(argv[i], "--school_zone") == 0) {
-            flags.is_school_zone = 1;
-        } else if (strcmp(argv[i], "--rush_hour") == 0) {
-            flags.is_rush_hour = 1;
-        } else if (strcmp(argv[i], "--tie_case") == 0) {
-            flags.is_main_road = 0;
-            flags.is_accident = 0;
-            flags.is_school_zone = 0;
-            flags.is_heavy_weather = 0;
-            flags.is_rush_hour = 0;
-            flags.has_pedestrian_crossing = 0;
-        } else if (strncmp(argv[i], "--algorithm=", 12) == 0) {
-            char* alg = argv[i] + 12;
-            if (strcmp(alg, "priority") == 0) {
-                mode = PRIORITY_QUEUE_SCHEDULING;
-            } else if (strcmp(alg, "round_robin") == 0) {
-                mode = ROUND_ROBIN;
-            }
-        } else if (strncmp(argv[i], "--main_road", 11) == 0) {
-            flags.is_main_road = 1;
-        } else if (strncmp(argv[i], "--heavy_weather", 15) == 0) {
-            flags.is_heavy_weather = 1;
-        } else if (strncmp(argv[i], "--pedestrian_crossing", 21) == 0) {
-            flags.has_pedestrian_crossing = 1;
-        } else if (strncmp(argv[i], "--steps=", 8) == 0) {
-            simulation_steps = atoi(argv[i] + 8);
-        }
-    }
-
-    TrafficSystem* system = createTrafficSystem();
-    SchedulingStats* stats = createSchedulingStats();
-
-    Vehicle v1 = {"V001", AMBULANCE, 0, STRAIGHT};
-    Vehicle v2 = {"V002", NORMAL, 1, LEFT};
-    Vehicle v3 = {"V003", BUS, 2, RIGHT};
-    Vehicle v4 = {"V004", VIP, 3, STRAIGHT};
-    Vehicle v5 = {"V005", FIRE, 4, LEFT};
-    Vehicle v6 = {"V006", POLICE, 5, RIGHT};
-    Vehicle v7 = {"V007", NORMAL, 6, STRAIGHT};
-    Vehicle v8 = {"V008", BUS, 7, LEFT};
-
-    addVehicleToLane(system, v1, 0);
-    addVehicleToLane(system, v2, 1);
-    addVehicleToLane(system, v3, 2);
-    addVehicleToLane(system, v4, 3);
-    addVehicleToLane(system, v5, 0);
-    addVehicleToLane(system, v6, 1);
-    addVehicleToLane(system, v7, 2);
-    addVehicleToLane(system, v8, 3);
-
-    for (int time = 0; time < simulation_steps; time++) {
-        int vehicles_moved = schedule(system, stats, mode, &flags, time_slice, time);
-        printSimulationStateJSON(system, stats, mode, &flags, time, vehicles_moved);
+    char* lane_start = strstr(json, "\"lanes\"");
+    if (!lane_start) return;
+    
+    char* curr = lane_start;
+    
+    for(int i=0; i<NUM_LANES; i++) {
+        state->lanes[i].count = 0;
+        state->lanes[i].id = i; // Default ID
         
-        #ifdef _WIN32
-        Sleep(700);
-        #else
-        usleep(700000);
-        #endif
+        // Find block start
+        char* v_list_tag = strstr(curr, "\"vehicles\"");
+        // Optional: Check if "id": n exists before this to confirm lane ID mapping.
+        // Assuming strict order 0,1,2,3 for simplicity as per previous context.
+        
+        if (!v_list_tag) break;
+        
+        char* arr_open = strchr(v_list_tag, '[');
+        if (!arr_open) break;
+        char* arr_close = strchr(arr_open, ']');
+        if (!arr_close) break;
+        
+        char* v_curr = arr_open;
+        while (v_curr < arr_close) {
+            char* obj_open = strchr(v_curr, '{');
+            if (!obj_open || obj_open > arr_close) break;
+            
+            char* type_key = strstr(obj_open, "\"type\"");
+            char* arrival_key = strstr(obj_open, "\"arrival_time\"");
+            
+            if (type_key && arrival_key && type_key < arr_close && arrival_key < arr_close) {
+                Vehicle* v = (Vehicle*)malloc(sizeof(Vehicle));
+                
+                char* type_val = strchr(type_key, ':');
+                if (type_val) v->type = parse_type(type_val);
+
+                char* arr_val = strchr(arrival_key, ':');
+                if (arr_val) v->arrival_time = atoi(arr_val + 1);
+                
+                state->lanes[i].vehicles[state->lanes[i].count++] = v;
+            }
+            v_curr = strchr(obj_open, '}'); 
+            if (!v_curr) break;
+            v_curr++;
+        }
+        curr = arr_close + 1;
+    }
+}
+
+// ============= LOGIC =============
+
+int calculateLanePriority(Lane* lane, ScenarioFlags* flags, int current_time, int* out_avg_wait) {
+    int priority = 0;
+    int queueLength = lane->count;
+    
+    // Rule 1: Base priority
+    priority += queueLength * BASE_WEIGHT;
+    
+    // Calculate Average Wait & scan for special vehicles
+    int totalWait = 0;
+    int maxEmergencyPriority = 0; // To track dominant rule
+    int schoolZoneBusBonus = 0;
+    int heavyWeatherBonus = 0;
+
+    for (int i = 0; i < lane->count; i++) {
+        Vehicle* v = lane->vehicles[i];
+        
+        // Wait time
+        int wait = current_time - v->arrival_time;
+        if (wait < 0) wait = 0;
+        totalWait += wait;
+        
+        // Rule 2 & 3 checks
+        VehicleType t = v->type;
+        if (t == AMBULANCE && PRIORITY_AMBULANCE > maxEmergencyPriority) maxEmergencyPriority = PRIORITY_AMBULANCE;
+        else if (t == FIRE && PRIORITY_FIRE > maxEmergencyPriority) maxEmergencyPriority = PRIORITY_FIRE;
+        else if (t == POLICE && PRIORITY_POLICE > maxEmergencyPriority) maxEmergencyPriority = PRIORITY_POLICE;
+        else if (t == VIP && PRIORITY_VIP > maxEmergencyPriority) maxEmergencyPriority = PRIORITY_VIP; // VIP is lower than emergency, so logic holds
+        
+        // Rule 5: School Zone Bus
+        if (t == BUS && flags->is_school_zone) schoolZoneBusBonus = ADJUSTMENT_SCHOOL_BUS;
+        
+        // Rule 6: Heavy Weather (Heavy vehicles: Bus/Trucks - assuming Bus here as per inputs)
+        // If "heavy vehicles" usually implies Bus/Trucks. We have Bus.
+        if (t == BUS && flags->is_heavy_weather) heavyWeatherBonus = ADJUSTMENT_WEATHER_HEAVY;
+    }
+    
+    *out_avg_wait = (queueLength > 0) ? (totalWait / queueLength) : 0;
+    
+    // Apply Rule 2/3 (Dominant Rule): Override queue length if emergency/VIP present
+    // "Emergency priority must override queue length" implies adding it to base or replacing it.
+    // Usually these constants are large enough to dominate (10000 vs 10*queue).
+    // The requirement says "If a lane contains... +X". We add it.
+    priority += maxEmergencyPriority;
+    
+    // Rule 4: Accident
+    if (flags->is_accident) {
+        // "If a lane is marked as accident-prone". 
+        // In this simple input model, 'is_accident' is global flag for the simulation context,
+        // but typically applies to a specific lane. The prompt says "If a lane is marked".
+        // The current ScenarioFlags structure is global. We will assume if global accident flag is ON,
+        // it applies to *some* logic. However, usually 'accident' flag in UI was toggleable per scenario.
+        // If the flag assumes specific lane, we need that info. 
+        // Given constraint: "is_accident" comes from global flags. 
+        // We will Apply to ALL lanes? No, that cancels out.
+        // We will assume for this challenge that if 'is_accident' is true, it might refer to a specific lane passed in config?
+        // But we only have global flags. 
+        // **Interpretation**: The requirement might mean "If the scenario is 'Is Accident', priority is adjusted" 
+        // OR the user UI has a button "Accident" which usually implies an accident happened generally affecting flow 
+        // or specifically on one lane.
+        // Let's look at previous code: it applied `PRIORITY_ACCIDENT` addition globally or partially.
+        // User Requirement Rule 4 says "If a lane is marked as accident-prone".
+        // Without per-lane metadata in JSON, we can't distinguish. 
+        // **However**, usually accident REDUCES capacity but INCREASES priority to clear?
+        // Requirement says "subtract 4000". This means avoid the lane.
+        // Strategy: We will apply this ONLY if we can identify the lane. 
+        // Since we can't, we will skip applying strict per-lane accident logic UNLESS
+        // we decide 'is_accident' applies to a fixed lane (e.g. Lane 0) or simply ignore if ambiguous.
+        // *Correction*: Previous code added priority. New requirement subtracts.
+        // Lacking specific lane ID in flags, I will apply to Lane 0 for demonstration/testing if flag is set,
+        // OR safer: don't apply if ambiguous to avoid breaking logic. 
+        // BUT, I must follow rules. Let's assume the 'is_accident' flag implies the "Main Road" or a specific condition.
+        // Re-reading payload: we send `is_accident` bool.
+        // I will apply it to Lane 0 as a "blocked lane" scenario for the sake of deterministic behavior complying with "Accident lane" concept.
+        if (flags->is_accident && lane->id == 0) {
+            priority += ADJUSTMENT_ACCIDENT; // Subtract 4000
+        }
+    }
+    
+    // Rule 9: Main Road priority
+    // "If lane is North or South". Assuming Lanes 0 and 2 are N/S (or 0/1 depending on layout).
+    // Standard Cross: 0=N, 1=E, 2=S, 3=W.
+    // Let's assume 0 and 2 are Main Road.
+    // Only apply if `is_main_road` flag is active? "If lane is North or South -> +1000". 
+    // This sounds unconditional based on geometry, OR conditional on flag.
+    // Let's make it conditional on `is_main_road` flag being true AND lane being 0 or 2.
+    if (flags->is_main_road && (lane->id == 0 || lane->id == 2)) {
+        priority += ADJUSTMENT_MAIN_ROAD;
+    }
+
+    // Rule 5: School Zone (Bus bonus)
+    priority += schoolZoneBusBonus;
+    
+    // Rule 6: Weather
+    priority += heavyWeatherBonus;
+    
+    // Rule 8: Pedestrian Crossing
+    if (flags->has_pedestrian_crossing) {
+        priority += ADJUSTMENT_PEDESTRIAN;
+    }
+    
+    // Rule 7: Rush Hour (Multiplier)
+    if (flags->is_rush_hour) {
+        priority = (int)(priority * 1.5);
+    }
+    
+    return priority;
+}
+
+// ============= MAIN =============
+
+int main() {
+    char json_buffer[MAX_BUFFER];
+    size_t len = fread(json_buffer, 1, MAX_BUFFER - 1, stdin);
+    json_buffer[len] = '\0';
+    
+    if (len == 0) return 0;
+
+    TrafficState state;
+    memset(&state, 0, sizeof(TrafficState));
+    parse_input(json_buffer, &state);
+    
+    PriorityQueue pq;
+    pq.size = 0;
+    
+    // Calculate and Insert
+    for (int i = 0; i < NUM_LANES; i++) {
+        int avg_wait = 0;
+        int p = calculateLanePriority(&state.lanes[i], &state.flags, state.current_time, &avg_wait);
+        insertHeap(&pq, i, p, avg_wait);
+    }
+    
+    // Extract ordered list for Rule 11
+    HeapNode sortedLanes[NUM_LANES];
+    int count = pq.size;
+    int selected_lane = -1;
+    
+    for (int i = 0; i < count; i++) {
+        sortedLanes[i] = extractMax(&pq);
+        if (i == 0) selected_lane = sortedLanes[i].lane_id;
+    }
+    
+    // Output JSON
+    printf("{\n");
+    printf("  \"selected_lane\": %d,\n", selected_lane);
+    printf("  \"num_vehicles_to_pass\": %d,\n", TIME_SLICE);
+    
+    printf("  \"priority_heap\": [\n"); // Keeping key name 'priority_heap' for frontend compatibility, though it's fully sorted now
+    for (int i = 0; i < count; i++) {
+        printf("    {\"lane_id\": %d, \"priority\": %d, \"rank\": %d}", 
+            sortedLanes[i].lane_id, sortedLanes[i].priority_value, i+1);
+        if (i < count - 1) printf(",\n");
+    }
+    printf("\n  ]\n");
+    printf("}\n");
+    
+    // Cleanup
+    for(int i=0; i<NUM_LANES; i++) {
+        for(int j=0; j<state.lanes[i].count; j++) {
+            free(state.lanes[i].vehicles[j]);
+        }
     }
 
     return 0;
