@@ -99,6 +99,7 @@ app.post('/api/start', (req, res) => {
         message: 'Simulation started'
     });
 });
+console.log('Route registered: /api/start');
 
 app.get('/api/state', (req, res) => {
     if (!latestState) {
@@ -113,6 +114,7 @@ app.get('/api/state', (req, res) => {
         state: latestState
     });
 });
+console.log('Route registered: /api/state');
 
 app.use(express.static(path.join(__dirname, '../public')));
 
