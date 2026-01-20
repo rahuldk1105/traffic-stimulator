@@ -3,6 +3,12 @@
 #include <string.h>
 #include <time.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
+
 #define MAX_VEHICLE_NUMBER 20
 #define HASH_TABLE_SIZE 101
 #define HASH_PRIME 97
@@ -689,130 +695,84 @@ const char* schedulingModeToString(SchedulingMode mode) {
     }
 }
 
-void printVehicleJSON(Vehicle vehicle, int indent) {
-    char indentStr[50] = "";
-    for (int i = 0; i < indent; i++) {
-        strcat(indentStr, "  ");
-    }
-
-    printf("%s{\n", indentStr);
-    printf("%s  \"vehicle_number\": \"%s\",\n", indentStr, vehicle.vehicle_number);
-    printf("%s  \"type\": \"%s\",\n", indentStr, vehicleTypeToString(vehicle.type));
-    printf("%s  \"arrival_time\": %d,\n", indentStr, vehicle.arrival_time);
-    printf("%s  \"direction\": \"%s\"\n", indentStr, directionToString(vehicle.direction));
-    printf("%s}", indentStr);
+void printVehicleJSON(Vehicle vehicle) {
+    printf("{\"vehicle_number\":\"%s\",\"type\":\"%s\",\"arrival_time\":%d,\"direction\":\"%s\"}",
+        vehicle.vehicle_number, vehicleTypeToString(vehicle.type), vehicle.arrival_time, directionToString(vehicle.direction));
 }
 
-void printLaneStateJSON(TrafficSystem* system, int lane_id, ScenarioFlags* flags, int current_time, int indent) {
-    char indentStr[50] = "";
-    for (int i = 0; i < indent; i++) {
-        strcat(indentStr, "  ");
-    }
-
+void printLaneStateJSON(TrafficSystem* system, int lane_id, ScenarioFlags* flags, int current_time) {
     Lane* lane = &system->lanes[lane_id];
     int priority = calculateLanePriority(system, lane_id, flags, current_time);
     int queueLength = lane->queue->size;
 
-    printf("%s{\n", indentStr);
-    printf("%s  \"lane_id\": %d,\n", indentStr, lane_id);
-    printf("%s  \"priority\": %d,\n", indentStr, priority);
-    printf("%s  \"queue_length\": %d,\n", indentStr, queueLength);
-    printf("%s  \"vehicles\": [\n", indentStr);
+    printf("{\"lane_id\":%d,\"priority\":%d,\"queue_length\":%d,\"vehicles\":[",
+        lane_id, priority, queueLength);
 
     QueueNode* current = lane->queue->front;
     int first = 1;
     while (current != NULL) {
         if (!first) {
-            printf(",\n");
+            printf(",");
         }
         first = 0;
-        printVehicleJSON(current->vehicle, indent + 2);
+        printVehicleJSON(current->vehicle);
         current = current->next;
     }
 
-    printf("\n%s  ]\n", indentStr);
-    printf("%s}", indentStr);
+    printf("]}");
 }
 
 void printSimulationStateJSON(TrafficSystem* system, SchedulingStats* stats, SchedulingMode mode, ScenarioFlags* flags, int current_time, int vehicles_moved) {
-    printf("{\n");
-    printf("  \"current_time\": %d,\n", current_time);
-    printf("  \"scheduling_mode\": \"%s\",\n", schedulingModeToString(mode));
-    printf("  \"selected_lane\": %d,\n", stats->current_lane);
-    printf("  \"vehicles_moved_this_cycle\": %d,\n", vehicles_moved);
+    printf("{\"current_time\":%d,\"scheduling_mode\":\"%s\",\"selected_lane\":%d,\"vehicles_moved_this_cycle\":%d,",
+        current_time, schedulingModeToString(mode), stats->current_lane, vehicles_moved);
 
-    printf("  \"performance_metrics\": {\n");
-    printf("    \"total_vehicles_served\": %d,\n", stats->total_vehicles_served);
-    printf("    \"total_waiting_time\": %d,\n", stats->total_waiting_time);
-    printf("    \"average_waiting_time\": %.2f,\n",
-           stats->total_vehicles_served > 0 ? (double)stats->total_waiting_time / stats->total_vehicles_served : 0.0);
-    printf("    \"signal_switch_count\": %d\n", stats->signal_switch_count);
-    printf("  },\n");
+    printf("\"performance_metrics\":{\"total_vehicles_served\":%d,\"total_waiting_time\":%d,\"average_waiting_time\":%.2f,\"signal_switch_count\":%d},",
+        stats->total_vehicles_served, stats->total_waiting_time,
+        stats->total_vehicles_served > 0 ? (double)stats->total_waiting_time / stats->total_vehicles_served : 0.0,
+        stats->signal_switch_count);
 
-    printf("  \"scenario_flags\": {\n");
+    printf("\"scenario_flags\":{");
     if (flags) {
-        printf("    \"is_main_road\": %s,\n", flags->is_main_road ? "true" : "false");
-        printf("    \"is_accident\": %s,\n", flags->is_accident ? "true" : "false");
-        printf("    \"is_school_zone\": %s,\n", flags->is_school_zone ? "true" : "false");
-        printf("    \"is_heavy_weather\": %s,\n", flags->is_heavy_weather ? "true" : "false");
-        printf("    \"is_rush_hour\": %s,\n", flags->is_rush_hour ? "true" : "false");
-        printf("    \"has_pedestrian_crossing\": %s\n", flags->has_pedestrian_crossing ? "true" : "false");
+        printf("\"is_main_road\":%s,", flags->is_main_road ? "true" : "false");
+        printf("\"is_accident\":%s,", flags->is_accident ? "true" : "false");
+        printf("\"is_school_zone\":%s,", flags->is_school_zone ? "true" : "false");
+        printf("\"is_heavy_weather\":%s,", flags->is_heavy_weather ? "true" : "false");
+        printf("\"is_rush_hour\":%s,", flags->is_rush_hour ? "true" : "false");
+        printf("\"has_pedestrian_crossing\":%s", flags->has_pedestrian_crossing ? "true" : "false");
     } else {
-        printf("    \"is_main_road\": false,\n");
-        printf("    \"is_accident\": false,\n");
-        printf("    \"is_school_zone\": false,\n");
-        printf("    \"is_heavy_weather\": false,\n");
-        printf("    \"is_rush_hour\": false,\n");
-        printf("    \"has_pedestrian_crossing\": false\n");
+        printf("\"is_main_road\":false,\"is_accident\":false,\"is_school_zone\":false,\"is_heavy_weather\":false,\"is_rush_hour\":false,\"has_pedestrian_crossing\":false");
     }
-    printf("  },\n");
+    printf("},");
 
-    printf("  \"lanes\": [\n");
+    printf("\"lanes\":[");
     for (int i = 0; i < NUM_LANES; i++) {
-        printLaneStateJSON(system, i, flags, current_time, 2);
+        printLaneStateJSON(system, i, flags, current_time);
         if (i < NUM_LANES - 1) {
-            printf(",\n");
-        } else {
-            printf("\n");
+            printf(",");
         }
     }
-    printf("  ]\n");
-
-    printf("}\n");
+    printf("]}\n");
+    fflush(stdout);
 }
 
 void printSearchResultJSON(char* vehicle_number, SearchResult linearResult, SearchResult hashResult, int lane_id) {
-    printf("{\n");
-    printf("  \"vehicle_number\": \"%s\",\n", vehicle_number);
-    printf("  \"lane_id\": %d,\n", lane_id);
-    printf("  \"ascii_sum\": %d,\n", getAsciiSum(vehicle_number));
-    printf("  \"hash1_index\": %d,\n", hash1(vehicle_number));
-    printf("  \"hash2_step\": %d,\n", hash2(vehicle_number));
+    printf("{\"vehicle_number\":\"%s\",\"lane_id\":%d,\"ascii_sum\":%d,\"hash1_index\":%d,\"hash2_step\":%d,",
+        vehicle_number, lane_id, getAsciiSum(vehicle_number), hash1(vehicle_number), hash2(vehicle_number));
 
-    printf("  \"linear_search\": {\n");
-    printf("    \"found\": %s,\n", linearResult.found ? "true" : "false");
-    printf("    \"probes\": %d,\n", linearResult.probes);
-    printf("    \"time_microseconds\": %.6f\n", linearResult.time_microseconds);
-    printf("  },\n");
+    printf("\"linear_search\":{\"found\":%s,\"probes\":%d,\"time_microseconds\":%.6f},",
+        linearResult.found ? "true" : "false", linearResult.probes, linearResult.time_microseconds);
 
-    printf("  \"hash_table_search\": {\n");
-    printf("    \"found\": %s,\n", hashResult.found ? "true" : "false");
-    printf("    \"probes\": %d,\n", hashResult.probes);
-    printf("    \"time_microseconds\": %.6f\n", hashResult.time_microseconds);
-    printf("  }");
-
+    printf("\"hash_table_search\":{\"found\":%s,\"probes\":%d,\"time_microseconds\":%.6f}",
+        hashResult.found ? "true" : "false", hashResult.probes, hashResult.time_microseconds);
+    
     if (linearResult.found && hashResult.found && linearResult.time_microseconds > 0) {
-        printf(",\n");
-        printf("  \"performance\": {\n");
-        printf("    \"speedup\": %.2f,\n", linearResult.time_microseconds / hashResult.time_microseconds);
-        printf("    \"probe_reduction_percent\": %.1f\n",
-               ((linearResult.probes - hashResult.probes) / (double)linearResult.probes) * 100.0);
-        printf("  }\n");
-    } else {
-        printf("\n");
+        printf(",\"performance\":{\"speedup\":%.2f,\"probe_reduction_percent\":%.1f}",
+             linearResult.time_microseconds / hashResult.time_microseconds,
+             ((linearResult.probes - hashResult.probes) / (double)linearResult.probes) * 100.0);
     }
 
     printf("}\n");
+    fflush(stdout);
 }
 
 // ============= COMMAND-LINE ARGUMENT PARSING =============
@@ -881,6 +841,12 @@ int main(int argc, char* argv[]) {
     for (int time = 0; time < simulation_steps; time++) {
         int vehicles_moved = schedule(system, stats, mode, &flags, time_slice, time);
         printSimulationStateJSON(system, stats, mode, &flags, time, vehicles_moved);
+        
+        #ifdef _WIN32
+        Sleep(500);
+        #else
+        usleep(500000);
+        #endif
     }
 
     return 0;
