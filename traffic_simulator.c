@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #define MAX_VEHICLE_NUMBER 20
 #define HASH_TABLE_SIZE 101
@@ -579,4 +580,188 @@ int schedule(TrafficSystem* system, SchedulingStats* stats, SchedulingMode mode,
     }
 
     return 0;
+}
+
+// ============= PERFORMANCE COMPARISON =============
+
+typedef struct {
+    int found;
+    int probes;
+    double time_microseconds;
+} SearchResult;
+
+SearchResult linearSearchInLane(LaneQueue* queue, char* vehicle_number) {
+    SearchResult result;
+    result.found = 0;
+    result.probes = 0;
+    result.time_microseconds = 0.0;
+
+    clock_t start = clock();
+
+    QueueNode* current = queue->front;
+    while (current != NULL) {
+        result.probes++;
+        if (strcmp(current->vehicle.vehicle_number, vehicle_number) == 0) {
+            result.found = 1;
+            break;
+        }
+        current = current->next;
+    }
+
+    clock_t end = clock();
+    result.time_microseconds = ((double)(end - start) / CLOCKS_PER_SEC) * 1000000.0;
+
+    return result;
+}
+
+SearchResult hashTableSearch(HashTable* table, char* vehicle_number) {
+    SearchResult result;
+    result.found = 0;
+    result.probes = 0;
+    result.time_microseconds = 0.0;
+
+    clock_t start = clock();
+
+    int index = hash1(vehicle_number);
+    int step = hash2(vehicle_number);
+    int i = 0;
+
+    while (i < HASH_TABLE_SIZE) {
+        result.probes++;
+
+        if (table->entries[index].occupied &&
+            strcmp(table->entries[index].vehicle.vehicle_number, vehicle_number) == 0) {
+            result.found = 1;
+            break;
+        }
+
+        if (!table->entries[index].occupied) {
+            break;
+        }
+
+        index = (index + step) % HASH_TABLE_SIZE;
+        i++;
+    }
+
+    clock_t end = clock();
+    result.time_microseconds = ((double)(end - start) / CLOCKS_PER_SEC) * 1000000.0;
+
+    return result;
+}
+
+int getAsciiSum(char* vehicle_number) {
+    int sum = 0;
+    for (int i = 0; vehicle_number[i] != '\0'; i++) {
+        sum += (int)vehicle_number[i];
+    }
+    return sum;
+}
+
+void printPerformanceComparison(TrafficSystem* system, char* vehicle_number) {
+    printf("\n");
+    printf("========================================\n");
+    printf("VEHICLE LOOKUP PERFORMANCE COMPARISON\n");
+    printf("========================================\n");
+    printf("Vehicle Number: %s\n", vehicle_number);
+    printf("ASCII Sum: %d\n", getAsciiSum(vehicle_number));
+    printf("Hash1 Index: %d\n", hash1(vehicle_number));
+    printf("Hash2 Step: %d\n", hash2(vehicle_number));
+    printf("----------------------------------------\n");
+
+    printf("\n%-20s %-10s %-15s %-15s\n", "Method", "Found", "Probes", "Time (µs)");
+    printf("%-20s %-10s %-15s %-15s\n", "--------------------", "----------", "---------------", "---------------");
+
+    for (int lane_id = 0; lane_id < NUM_LANES; lane_id++) {
+        Lane* lane = &system->lanes[lane_id];
+
+        SearchResult linearResult = linearSearchInLane(lane->queue, vehicle_number);
+        SearchResult hashResult = hashTableSearch(lane->hashTable, vehicle_number);
+
+        if (linearResult.found || hashResult.found) {
+            printf("\nLane %d:\n", lane_id);
+            printf("%-20s %-10s %-15d %-15.6f\n",
+                   "Linear Search",
+                   linearResult.found ? "Yes" : "No",
+                   linearResult.probes,
+                   linearResult.time_microseconds);
+
+            printf("%-20s %-10s %-15d %-15.6f\n",
+                   "Hash Table",
+                   hashResult.found ? "Yes" : "No",
+                   hashResult.probes,
+                   hashResult.time_microseconds);
+
+            if (linearResult.found && hashResult.found) {
+                double speedup = linearResult.time_microseconds / hashResult.time_microseconds;
+                printf("  Speedup: %.2fx faster with hash table\n", speedup);
+                printf("  Probe reduction: %d -> %d (%.1f%% reduction)\n",
+                       linearResult.probes,
+                       hashResult.probes,
+                       ((linearResult.probes - hashResult.probes) / (double)linearResult.probes) * 100.0);
+            }
+        }
+    }
+
+    printf("\n========================================\n");
+}
+
+void printDetailedHashAnalysis(HashTable* table, char* vehicle_number) {
+    printf("\n");
+    printf("========================================\n");
+    printf("DETAILED HASH TABLE ANALYSIS\n");
+    printf("========================================\n");
+    printf("Vehicle Number: %s\n", vehicle_number);
+
+    int ascii_sum = getAsciiSum(vehicle_number);
+    int h1 = hash1(vehicle_number);
+    int h2 = hash2(vehicle_number);
+
+    printf("ASCII Sum: %d\n", ascii_sum);
+    printf("Hash1(x) = %d %% %d = %d\n", ascii_sum, HASH_TABLE_SIZE, h1);
+    printf("Hash2(x) = %d - (%d %% %d) = %d\n", HASH_PRIME, ascii_sum, HASH_PRIME, h2);
+    printf("----------------------------------------\n");
+
+    printf("\nCollision Resolution Steps:\n");
+    printf("%-5s %-10s %-15s %-10s\n", "Step", "Index", "Occupied", "Match");
+    printf("%-5s %-10s %-15s %-10s\n", "-----", "----------", "---------------", "----------");
+
+    int index = h1;
+    int step = h2;
+    int i = 0;
+    int found = 0;
+
+    while (i < HASH_TABLE_SIZE && i < 10) {
+        int occupied = table->entries[index].occupied;
+        int match = 0;
+
+        if (occupied && strcmp(table->entries[index].vehicle.vehicle_number, vehicle_number) == 0) {
+            match = 1;
+            found = 1;
+        }
+
+        printf("%-5d %-10d %-15s %-10s",
+               i,
+               index,
+               occupied ? "Yes" : "No",
+               match ? "Yes" : "No");
+
+        if (match) {
+            printf(" <- FOUND");
+        } else if (!occupied) {
+            printf(" <- EMPTY SLOT");
+        }
+
+        printf("\n");
+
+        if (match || !occupied) {
+            break;
+        }
+
+        index = (index + step) % HASH_TABLE_SIZE;
+        i++;
+    }
+
+    printf("\nResult: %s\n", found ? "Vehicle FOUND" : "Vehicle NOT FOUND");
+    printf("Total Probes: %d\n", i + 1);
+    printf("========================================\n");
 }
