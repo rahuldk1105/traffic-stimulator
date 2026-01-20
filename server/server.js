@@ -6,7 +6,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, '../public')));
 
 let currentSimulation = null;
 let latestState = null;
@@ -50,7 +50,7 @@ app.post('/api/start', (req, res) => {
     latestState = null;
     simulationRunning = true;
 
-    const simulatorPath = path.join(__dirname, 'traffic_simulator');
+    const simulatorPath = path.join(__dirname, '../backend/traffic_sim');
     currentSimulation = spawn(simulatorPath, args);
 
     let outputBuffer = '';
@@ -152,7 +152,7 @@ app.post('/api/stop', (req, res) => {
 });
 
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 app.use((err, req, res, next) => {

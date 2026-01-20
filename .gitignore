@@ -1,4 +1,6 @@
 # Compiled binaries
+backend/traffic_sim
+backend/traffic_sim.exe
 traffic_simulator
 traffic_simulator.exe
 

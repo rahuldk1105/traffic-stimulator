@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Priority-Based Traffic Simulator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <h1>PRIORITY-BASED TRAFFIC SIMULATOR</h1>
+
+        <div class="controls">
+            <button id="btn-emergency">EMERGENCY</button>
+            <button id="btn-accident">ACCIDENT</button>
+            <button id="btn-school-zone">SCHOOL ZONE</button>
+            <button id="btn-rush-hour">RUSH HOUR</button>
+            <button id="btn-tie-case">TIE CASE</button>
+            <button id="btn-mode">MODE: ROUND ROBIN</button>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-label">CURRENT TIME</div>
+                <div class="status-value" id="current-time">0</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">VEHICLES SERVED</div>
+                <div class="status-value" id="vehicles-served">0</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">AVG WAIT TIME</div>
+                <div class="status-value" id="avg-wait-time">0.0</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">SIGNAL SWITCHES</div>
+                <div class="status-value" id="signal-switches">0</div>
+            </div>
+        </div>
+
+        <div class="lanes-container">
+            <div class="lane" id="lane-0">
+                <div class="lane-header">
+                    <span>LANE 0</span>
+                    <span>Priority: <span class="lane-priority">0</span> | Queue: <span class="lane-queue-length">0</span></span>
+                </div>
+                <div class="lane-queue"></div>
+            </div>
+            <div class="lane" id="lane-1">
+                <div class="lane-header">
+                    <span>LANE 1</span>
+                    <span>Priority: <span class="lane-priority">0</span> | Queue: <span class="lane-queue-length">0</span></span>
+                </div>
+                <div class="lane-queue"></div>
+            </div>
+            <div class="lane" id="lane-2">
+                <div class="lane-header">
+                    <span>LANE 2</span>
+                    <span>Priority: <span class="lane-priority">0</span> | Queue: <span class="lane-queue-length">0</span></span>
+                </div>
+                <div class="lane-queue"></div>
+            </div>
+            <div class="lane" id="lane-3">
+                <div class="lane-header">
+                    <span>LANE 3</span>
+                    <span>Priority: <span class="lane-priority">0</span> | Queue: <span class="lane-queue-length">0</span></span>
+                </div>
+                <div class="lane-queue"></div>
+            </div>
+        </div>
+
+        <div class="tables-container">
+            <div class="table-section">
+                <h2>PRIORITY QUEUE STATUS</h2>
+                <table id="priority-queue-table">
+                    <thead>
+                        <tr>
+                            <th>Lane ID</th>
+                            <th>Priority</th>
+                            <th>Queue Length</th>
+                            <th>Top Vehicle</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div class="table-section">
+                <h2>ALGORITHM COMPARISON</h2>
+                <table id="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>Round Robin</th>
+                            <th>Priority Queue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Avg Wait Time</td>
+                            <td id="rr-wait">-</td>
+                            <td id="pq-wait">-</td>
+                        </tr>
+                        <tr>
+                            <td>Vehicles Served</td>
+                            <td id="rr-served">-</td>
+                            <td id="pq-served">-</td>
+                        </tr>
+                        <tr>
+                            <td>Signal Switches</td>
+                            <td id="rr-switches">-</td>
+                            <td id="pq-switches">-</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #ff4444;"></div>
+                <span>AMBULANCE</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #ff9933;"></div>
+                <span>FIRE</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #4444ff;"></div>
+                <span>POLICE</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #9933ff;"></div>
+                <span>VIP</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #ffdd33;"></div>
+                <span>BUS</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #999;"></div>
+                <span>NORMAL</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
