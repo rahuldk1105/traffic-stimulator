@@ -50,65 +50,54 @@ app.post('/api/start', (req, res) => {
     latestState = null;
     simulationRunning = true;
 
+    // Use absolute path relative to this file
     const simulatorPath = path.join(__dirname, '../backend/traffic_sim');
-    currentSimulation = spawn(simulatorPath, args);
+    
+    try {
+        currentSimulation = spawn(simulatorPath, args);
+    } catch (err) {
+        simulationRunning = false;
+        return res.status(500).json({ error: 'Failed to spawn simulator', details: err.message });
+    }
 
     let outputBuffer = '';
-    const stateHistory = [];
 
     currentSimulation.stdout.on('data', (data) => {
         outputBuffer += data.toString();
-
+        
         const lines = outputBuffer.split('\n');
-        outputBuffer = lines.pop();
+        outputBuffer = lines.pop(); // Keep partial line
 
         lines.forEach(line => {
             if (line.trim()) {
                 try {
                     const jsonState = JSON.parse(line);
-                    stateHistory.push(jsonState);
                     latestState = jsonState;
                 } catch (err) {
-                    console.error('JSON parse error:', err.message);
+                    // Ignore parsing errors usually caused by partial or non-json output
                 }
             }
         });
     });
 
     currentSimulation.stderr.on('data', (data) => {
-        console.error(`Simulator error: ${data}`);
+        console.error(`Simulator stderr: ${data}`);
     });
 
     currentSimulation.on('close', (code) => {
         simulationRunning = false;
         currentSimulation = null;
-
-        if (code !== 0) {
-            console.error(`Simulator exited with code ${code}`);
-        }
     });
 
     currentSimulation.on('error', (err) => {
         simulationRunning = false;
         currentSimulation = null;
-        console.error('Failed to start simulator:', err.message);
+        console.error('Simulator process error:', err);
     });
 
     res.json({
         success: true,
-        message: 'Simulation started',
-        config: {
-            emergency,
-            accident,
-            school_zone,
-            rush_hour,
-            tie_case,
-            main_road,
-            heavy_weather,
-            pedestrian_crossing,
-            algorithm,
-            steps
-        }
+        message: 'Simulation started'
     });
 });
 
@@ -126,51 +115,6 @@ app.get('/api/state', (req, res) => {
     });
 });
 
-app.get('/api/status', (req, res) => {
-    res.json({
-        running: simulationRunning,
-        hasData: latestState !== null
-    });
-});
-
-app.post('/api/stop', (req, res) => {
-    if (!simulationRunning || !currentSimulation) {
-        return res.status(400).json({
-            error: 'No simulation running',
-            message: 'There is no active simulation to stop'
-        });
-    }
-
-    currentSimulation.kill('SIGTERM');
-    simulationRunning = false;
-    currentSimulation = null;
-
-    res.json({
-        success: true,
-        message: 'Simulation stopped'
-    });
-});
-
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, '../public/index.html'));
-});
-
-app.use((err, req, res, next) => {
-    console.error('Server error:', err);
-    res.status(500).json({
-        error: 'Internal server error',
-        message: err.message
-    });
-});
-
 app.listen(PORT, () => {
-    console.log(`Traffic Simulator Server running on http://localhost:${PORT}`);
-    console.log(`Frontend: http://localhost:${PORT}/`);
-    console.log(`API endpoints:`);
-    console.log(`  POST /api/start - Start simulation with scenario flags`);
-    console.log(`  GET  /api/state - Get latest simulation state`);
-    console.log(`  GET  /api/status - Get server status`);
-    console.log(`  POST /api/stop - Stop running simulation`);
+    console.log(`Server running on port ${PORT}`);
 });
-
-module.exports = app;

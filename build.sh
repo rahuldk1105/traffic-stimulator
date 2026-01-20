@@ -1,20 +1,15 @@
 #!/bin/bash
 
-# Build script for Traffic Simulator
-# Compiles C backend for deployment
-
-echo "Building Traffic Simulator backend..."
-
-# Compile C program
+# Compile the C backend
+# We use -lm to link the math library just in case, as recommended in the README
 gcc -o backend/traffic_sim backend/traffic_sim.c -lm
 
+# Check if compilation was successful
 if [ $? -eq 0 ]; then
-    echo "✓ C backend compiled successfully: backend/traffic_sim"
+    echo "Compilation successful."
+    # Ensure the binary is executable
     chmod +x backend/traffic_sim
-    echo "✓ Made executable"
 else
-    echo "✗ Compilation failed"
+    echo "Compilation failed."
     exit 1
 fi
-
-echo "Build complete!"
