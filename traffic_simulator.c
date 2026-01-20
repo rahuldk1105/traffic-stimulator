@@ -457,3 +457,126 @@ int calculateLanePriority(TrafficSystem* system, int lane_id, ScenarioFlags* fla
 
     return priority;
 }
+
+// ============= SCHEDULING ALGORITHMS =============
+
+typedef enum {
+    ROUND_ROBIN,
+    PRIORITY_QUEUE_SCHEDULING
+} SchedulingMode;
+
+typedef struct {
+    int total_vehicles_served;
+    int total_waiting_time;
+    int signal_switch_count;
+    int current_lane;
+} SchedulingStats;
+
+SchedulingStats* createSchedulingStats() {
+    SchedulingStats* stats = (SchedulingStats*)malloc(sizeof(SchedulingStats));
+    stats->total_vehicles_served = 0;
+    stats->total_waiting_time = 0;
+    stats->signal_switch_count = 0;
+    stats->current_lane = 0;
+    return stats;
+}
+
+int scheduleRoundRobin(TrafficSystem* system, SchedulingStats* stats, int time_slice, int current_time) {
+    int vehiclesProcessed = 0;
+    int startLane = stats->current_lane;
+    int nextLane = startLane;
+
+    for (int i = 0; i < NUM_LANES; i++) {
+        int lane_id = (startLane + i) % NUM_LANES;
+        Lane* lane = &system->lanes[lane_id];
+
+        if (!isQueueEmpty(lane->queue)) {
+            nextLane = lane_id;
+            break;
+        }
+    }
+
+    if (nextLane != stats->current_lane) {
+        stats->signal_switch_count++;
+        stats->current_lane = nextLane;
+    }
+
+    Lane* currentLane = &system->lanes[stats->current_lane];
+    int timeUsed = 0;
+
+    while (timeUsed < time_slice && !isQueueEmpty(currentLane->queue)) {
+        Vehicle vehicle = dequeue(currentLane->queue);
+
+        int waitingTime = current_time - vehicle.arrival_time;
+        if (waitingTime < 0) {
+            waitingTime = 0;
+        }
+
+        stats->total_waiting_time += waitingTime;
+        stats->total_vehicles_served++;
+        vehiclesProcessed++;
+
+        timeUsed++;
+    }
+
+    stats->current_lane = (stats->current_lane + 1) % NUM_LANES;
+
+    return vehiclesProcessed;
+}
+
+int schedulePriorityQueue(TrafficSystem* system, SchedulingStats* stats, ScenarioFlags* flags, int time_slice, int current_time) {
+    int vehiclesProcessed = 0;
+
+    PriorityQueue* pq = createPriorityQueue();
+
+    for (int i = 0; i < NUM_LANES; i++) {
+        if (!isQueueEmpty(system->lanes[i].queue)) {
+            int priority = calculateLanePriority(system, i, flags, current_time);
+            insertHeap(pq, i, priority);
+        }
+    }
+
+    if (pq->size == 0) {
+        free(pq);
+        return 0;
+    }
+
+    HeapNode maxNode = extractMax(pq);
+    int selectedLane = maxNode.lane_id;
+
+    if (selectedLane != stats->current_lane) {
+        stats->signal_switch_count++;
+        stats->current_lane = selectedLane;
+    }
+
+    Lane* currentLane = &system->lanes[selectedLane];
+    int timeUsed = 0;
+
+    while (timeUsed < time_slice && !isQueueEmpty(currentLane->queue)) {
+        Vehicle vehicle = dequeue(currentLane->queue);
+
+        int waitingTime = current_time - vehicle.arrival_time;
+        if (waitingTime < 0) {
+            waitingTime = 0;
+        }
+
+        stats->total_waiting_time += waitingTime;
+        stats->total_vehicles_served++;
+        vehiclesProcessed++;
+
+        timeUsed++;
+    }
+
+    free(pq);
+    return vehiclesProcessed;
+}
+
+int schedule(TrafficSystem* system, SchedulingStats* stats, SchedulingMode mode, ScenarioFlags* flags, int time_slice, int current_time) {
+    if (mode == ROUND_ROBIN) {
+        return scheduleRoundRobin(system, stats, time_slice, current_time);
+    } else if (mode == PRIORITY_QUEUE_SCHEDULING) {
+        return schedulePriorityQueue(system, stats, flags, time_slice, current_time);
+    }
+
+    return 0;
+}
