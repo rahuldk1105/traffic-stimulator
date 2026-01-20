@@ -477,6 +477,7 @@ typedef struct {
     int total_waiting_time;
     int signal_switch_count;
     int current_lane;
+    PriorityQueue* last_pq; // Store latest PQ for visualization
 } SchedulingStats;
 
 SchedulingStats* createSchedulingStats() {
@@ -485,6 +486,7 @@ SchedulingStats* createSchedulingStats() {
     stats->total_waiting_time = 0;
     stats->signal_switch_count = 0;
     stats->current_lane = 0;
+    stats->last_pq = NULL;
     return stats;
 }
 
@@ -527,6 +529,12 @@ int scheduleRoundRobin(TrafficSystem* system, SchedulingStats* stats, int time_s
     }
 
     stats->current_lane = (stats->current_lane + 1) % NUM_LANES;
+    
+    // Clear last PQ since RR doesn't use it, but for JSON consistency we might want to show empty or NULL
+    if (stats->last_pq) {
+        free(stats->last_pq);
+        stats->last_pq = NULL;
+    }
 
     return vehiclesProcessed;
 }
@@ -542,6 +550,14 @@ int schedulePriorityQueue(TrafficSystem* system, SchedulingStats* stats, Scenari
             insertHeap(pq, i, priority);
         }
     }
+
+    // Save PQ state for visualization before extracting max
+    if (stats->last_pq) {
+        free(stats->last_pq);
+    }
+    stats->last_pq = createPriorityQueue();
+    // Copy content
+    memcpy(stats->last_pq, pq, sizeof(PriorityQueue));
 
     if (pq->size == 0) {
         free(pq);
@@ -722,9 +738,23 @@ void printLaneStateJSON(TrafficSystem* system, int lane_id, ScenarioFlags* flags
     printf("]}");
 }
 
+void printPriorityQueueJSON(PriorityQueue* pq) {
+    printf("\"priority_heap\":[");
+    if (pq != NULL) {
+        // Since it's a heap, we can just print the array order which represents the tree
+        for (int i = 0; i < pq->size; i++) {
+            if (i > 0) printf(",");
+            printf("{\"lane_id\":%d,\"priority\":%d}", pq->nodes[i].lane_id, pq->nodes[i].priority_value);
+        }
+    }
+    printf("],");
+}
+
 void printSimulationStateJSON(TrafficSystem* system, SchedulingStats* stats, SchedulingMode mode, ScenarioFlags* flags, int current_time, int vehicles_moved) {
     printf("{\"current_time\":%d,\"scheduling_mode\":\"%s\",\"selected_lane\":%d,\"vehicles_moved_this_cycle\":%d,",
         current_time, schedulingModeToString(mode), stats->current_lane, vehicles_moved);
+
+    printPriorityQueueJSON(stats->last_pq);
 
     printf("\"performance_metrics\":{\"total_vehicles_served\":%d,\"total_waiting_time\":%d,\"average_waiting_time\":%.2f,\"signal_switch_count\":%d},",
         stats->total_vehicles_served, stats->total_waiting_time,
@@ -843,9 +873,9 @@ int main(int argc, char* argv[]) {
         printSimulationStateJSON(system, stats, mode, &flags, time, vehicles_moved);
         
         #ifdef _WIN32
-        Sleep(500);
+        Sleep(700);
         #else
-        usleep(500000);
+        usleep(700000);
         #endif
     }
 

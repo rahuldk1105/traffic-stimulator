@@ -127,8 +127,10 @@ button.active {
     justify-content: center;
     font-size: 10px;
     font-weight: bold;
-    transition: transform 0.5s ease, opacity 0.5s ease;
+    transition: transform 0.7s linear, opacity 0.7s linear;
     position: relative;
+    background-color: white; 
+    z-index: 1;
 }
 
 .vehicle::before {
@@ -171,9 +173,13 @@ button.active {
     color: white;
 }
 
-.vehicle.moving {
-    transform: translateX(100px);
+.vehicle.moving-out {
+    transform: translateX(-80px); /* Move left out of queue */
     opacity: 0;
+}
+
+.vehicle.shifting {
+    transform: translateX(-68px); /* Shift left by approx one vehicle slot (60 + 8 gap) */
 }
 
 .tables-container {
@@ -215,6 +221,11 @@ th {
 
 tr:nth-child(even) {
     background-color: #f9f9f9;
+}
+
+tr.selected-row {
+    background-color: #d4edda !important; /* Greenish tint for selected lane */
+    border: 2px solid #28a745;
 }
 
 .legend {

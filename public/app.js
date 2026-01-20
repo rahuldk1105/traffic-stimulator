@@ -1,3 +1,8 @@
+// State storage
+let lastState = null;
+let isAnimating = false;
+let pendingState = null;
+
 let currentMode = 'priority';
 let scenarioFlags = {
     emergency: false,
@@ -60,6 +65,10 @@ async function startSimulation() {
 
         if (response.ok) {
             isSimulationRunning = true;
+            // Reset client-side state on new simulation start
+            lastState = null;
+            selectedLaneId = -1;
+
             if (!pollingInterval) {
                 pollingInterval = setInterval(fetchSimulationState, 500);
             }
@@ -81,19 +90,87 @@ async function fetchSimulationState() {
 
         const result = await response.json();
 
-        if (result.state) {
-            updateUI(result.state);
-        }
-
+        // Check if simulation stopped
         if (!result.running) {
             isSimulationRunning = false;
+        }
+
+        // Only update if we have a valid state and it's new
+        if (result.state) {
+            if (!lastState || result.state.current_time !== lastState.current_time) {
+                handleStateUpdate(result.state);
+            }
         }
     } catch (error) {
         console.error('Error fetching simulation state:', error);
     }
 }
 
-function updateUI(data) {
+function handleStateUpdate(newState) {
+    if (isAnimating) {
+        pendingState = newState;
+        return;
+    }
+
+    // Initial render
+    if (!lastState) {
+        fullRender(newState);
+        lastState = newState;
+        return;
+    }
+
+    // Determine if we need animation
+    // Animation needed if vehicles moved in the selected lane
+    const laneId = newState.selected_lane;
+    const vehiclesMoved = newState.vehicles_moved_this_cycle;
+
+    if (vehiclesMoved > 0) {
+        isAnimating = true;
+        animateLane(laneId, vehiclesMoved, newState);
+    } else {
+        fullRender(newState);
+        lastState = newState;
+    }
+}
+
+function animateLane(laneId, movedCount, newState) {
+    const laneEl = document.getElementById(`lane-${laneId}`);
+    if (!laneEl) {
+        isAnimating = false;
+        fullRender(newState);
+        lastState = newState;
+        return;
+    }
+
+    const queueEl = laneEl.querySelector('.lane-queue');
+    const vehicles = Array.from(queueEl.children);
+
+    // Apply animation classes
+    vehicles.forEach((v, idx) => {
+        if (idx < movedCount) {
+            v.classList.add('moving-out');
+        } else {
+            v.classList.add('shifting');
+        }
+    });
+
+    // Wait for transition to complete (700ms match with CSS)
+    setTimeout(() => {
+        fullRender(newState);
+        lastState = newState;
+        isAnimating = false;
+
+        // Process pending state if any
+        if (pendingState) {
+            const next = pendingState;
+            pendingState = null;
+            // Prevent recursion stack overflow if rapid updates (using setTimeout 0)
+            setTimeout(() => handleStateUpdate(next), 0);
+        }
+    }, 700);
+}
+
+function fullRender(data) {
     document.getElementById('current-time').textContent = data.current_time;
     document.getElementById('vehicles-served').textContent = data.performance_metrics.total_vehicles_served;
     document.getElementById('avg-wait-time').textContent = data.performance_metrics.average_waiting_time.toFixed(1);
@@ -110,23 +187,16 @@ function updateUI(data) {
         header.querySelector('.lane-queue-length').textContent = lane.queue_length;
 
         queueElement.innerHTML = '';
-        lane.vehicles.forEach((vehicle, idx) => {
+        lane.vehicles.forEach((vehicle) => {
             const vehicleElement = document.createElement('div');
             vehicleElement.className = `vehicle ${vehicle.type}`;
             vehicleElement.setAttribute('data-type', vehicle.type);
             vehicleElement.textContent = vehicle.vehicle_number;
-
-            if (idx === 0 && i === data.selected_lane && data.vehicles_moved_this_cycle > 0) {
-                setTimeout(() => {
-                    vehicleElement.classList.add('moving');
-                }, 100);
-            }
-
             queueElement.appendChild(vehicleElement);
         });
     }
 
-    updatePriorityQueueTable(data.lanes);
+    updatePriorityQueueTable(data);
 
     if (data.scheduling_mode === 'ROUND_ROBIN') {
         rrStats = {
@@ -145,24 +215,59 @@ function updateUI(data) {
     updateComparisonTable();
 }
 
-function updatePriorityQueueTable(lanes) {
+function updatePriorityQueueTable(data) {
     const tbody = document.querySelector('#priority-queue-table tbody');
     tbody.innerHTML = '';
 
-    lanes.forEach(lane => {
-        const row = document.createElement('tr');
-        const topVehicle = lane.vehicles.length > 0 ?
-            `${lane.vehicles[0].vehicle_number} (${lane.vehicles[0].type})` :
-            '-';
+    const selectedLaneId = data.selected_lane;
 
-        row.innerHTML = `
-            <td>Lane ${lane.lane_id}</td>
-            <td>${lane.priority}</td>
-            <td>${lane.queue_length}</td>
-            <td>${topVehicle}</td>
-        `;
-        tbody.appendChild(row);
-    });
+    if (data.priority_heap && data.priority_heap.length > 0) {
+        data.priority_heap.forEach((node, index) => {
+            const lane = data.lanes[node.lane_id];
+            const row = document.createElement('tr');
+
+            // Highlight if this is the selected lane
+            // Note: In priority scheduling, the selected lane is usually the top of the heap.
+            // But we check against data.selected_lane to be sure.
+            if (node.lane_id === selectedLaneId) {
+                row.classList.add('selected-row');
+            }
+
+            const topVehicle = lane.vehicles.length > 0 ?
+                `${lane.vehicles[0].vehicle_number} (${lane.vehicles[0].type})` :
+                '-';
+
+            row.innerHTML = `
+                <td>${index + 1}</td>
+                <td>Lane ${node.lane_id}</td>
+                <td>${node.priority}</td>
+                <td>${lane.queue_length}</td>
+                <td>${topVehicle}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    } else {
+        data.lanes.forEach((lane, index) => {
+            const row = document.createElement('tr');
+
+            if (lane.lane_id === selectedLaneId) {
+                row.classList.add('selected-row');
+            }
+
+            const topVehicle = lane.vehicles.length > 0 ?
+                `${lane.vehicles[0].vehicle_number} (${lane.vehicles[0].type})` :
+                '-';
+
+            row.innerHTML = `
+                <td>${index + 1}</td>
+                <td>Lane ${lane.lane_id}</td>
+                <td>${lane.priority}</td>
+                <td>${lane.queue_length}</td>
+                <td>${topVehicle}</td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
 }
 
 function updateComparisonTable() {
