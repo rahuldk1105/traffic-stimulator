@@ -6,6 +6,7 @@
 #define HASH_TABLE_SIZE 101
 #define HASH_PRIME 97
 #define MAX_HEAP_SIZE 100
+#define NUM_LANES 4
 
 // ============= VEHICLE STRUCTURE =============
 
@@ -252,6 +253,62 @@ Vehicle* searchHash(HashTable* table, char* vehicle_number) {
 
         index = (index + step) % HASH_TABLE_SIZE;
         i++;
+    }
+
+    return NULL;
+}
+
+// ============= MULTI-LANE SYSTEM =============
+
+typedef struct {
+    int lane_id;
+    LaneQueue* queue;
+    HashTable* hashTable;
+} Lane;
+
+typedef struct {
+    Lane lanes[NUM_LANES];
+} TrafficSystem;
+
+TrafficSystem* createTrafficSystem() {
+    TrafficSystem* system = (TrafficSystem*)malloc(sizeof(TrafficSystem));
+
+    for (int i = 0; i < NUM_LANES; i++) {
+        system->lanes[i].lane_id = i;
+        system->lanes[i].queue = createLaneQueue();
+        system->lanes[i].hashTable = createHashTable();
+    }
+
+    return system;
+}
+
+void addVehicleToLane(TrafficSystem* system, Vehicle vehicle, int lane_id) {
+    if (lane_id < 0 || lane_id >= NUM_LANES) {
+        return;
+    }
+
+    enqueue(system->lanes[lane_id].queue, vehicle);
+    insertHash(system->lanes[lane_id].hashTable, vehicle);
+}
+
+Vehicle removeVehicleFromLane(TrafficSystem* system, int lane_id) {
+    Vehicle vehicle;
+
+    if (lane_id < 0 || lane_id >= NUM_LANES) {
+        memset(&vehicle, 0, sizeof(Vehicle));
+        return vehicle;
+    }
+
+    vehicle = dequeue(system->lanes[lane_id].queue);
+    return vehicle;
+}
+
+Vehicle* lookupVehicleByNumber(TrafficSystem* system, char* vehicle_number) {
+    for (int i = 0; i < NUM_LANES; i++) {
+        Vehicle* vehicle = searchHash(system->lanes[i].hashTable, vehicle_number);
+        if (vehicle != NULL) {
+            return vehicle;
+        }
     }
 
     return NULL;
