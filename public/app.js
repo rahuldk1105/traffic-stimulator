@@ -18,6 +18,7 @@ const btnSchoolZone = document.getElementById('btn-school-zone');
 const btnRushHour = document.getElementById('btn-rush-hour');
 const btnTieCase = document.getElementById('btn-tie-case');
 const btnMode = document.getElementById('btn-mode');
+const btnStart = document.getElementById('btn-start');
 
 btnEmergency.addEventListener('click', () => toggleScenario('emergency', btnEmergency));
 btnAccident.addEventListener('click', () => toggleScenario('accident', btnAccident));
@@ -25,17 +26,16 @@ btnSchoolZone.addEventListener('click', () => toggleScenario('school_zone', btnS
 btnRushHour.addEventListener('click', () => toggleScenario('rush_hour', btnRushHour));
 btnTieCase.addEventListener('click', () => toggleScenario('tie_case', btnTieCase));
 btnMode.addEventListener('click', toggleMode);
+btnStart.addEventListener('click', startSimulation);
 
 function toggleScenario(scenario, button) {
     scenarioFlags[scenario] = !scenarioFlags[scenario];
     button.classList.toggle('active');
-    startSimulation();
 }
 
 function toggleMode() {
     currentMode = currentMode === 'priority' ? 'round_robin' : 'priority';
     btnMode.textContent = `MODE: ${currentMode.toUpperCase().replace('_', ' ')}`;
-    startSimulation();
 }
 
 async function startSimulation() {
@@ -175,4 +175,4 @@ function updateComparisonTable() {
     document.getElementById('pq-switches').textContent = pqStats.switches;
 }
 
-startSimulation();
+
