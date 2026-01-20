@@ -103,9 +103,10 @@ console.log('Route registered: /api/start');
 
 app.get('/api/state', (req, res) => {
     if (!latestState) {
-        return res.status(404).json({
-            error: 'No simulation data available',
-            message: 'Start a simulation first using POST /api/start'
+        return res.json({
+            running: simulationRunning,
+            state: null,
+            message: "Simulation running, no data yet"
         });
     }
 
