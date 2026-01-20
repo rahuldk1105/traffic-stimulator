@@ -1,0 +1,589 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Priority-Based Traffic Simulator</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Courier New', monospace;
+            background-color: #f5f5f5;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border: 2px solid #333;
+        }
+
+        h1 {
+            text-align: center;
+            border-bottom: 3px solid #333;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+            font-size: 24px;
+            letter-spacing: 2px;
+        }
+
+        .controls {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        button {
+            background-color: #fff;
+            border: 2px solid #333;
+            padding: 10px 20px;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.2s;
+        }
+
+        button:hover {
+            background-color: #333;
+            color: white;
+        }
+
+        button.active {
+            background-color: #333;
+            color: white;
+        }
+
+        .status-bar {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 10px;
+            margin-bottom: 20px;
+            padding: 15px;
+            background-color: #f9f9f9;
+            border: 2px solid #333;
+        }
+
+        .status-item {
+            text-align: center;
+        }
+
+        .status-label {
+            font-size: 11px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .status-value {
+            font-size: 18px;
+            font-weight: bold;
+        }
+
+        .lanes-container {
+            margin-bottom: 30px;
+            border: 2px solid #333;
+            padding: 20px;
+            background-color: #fafafa;
+        }
+
+        .lane {
+            margin-bottom: 15px;
+            border: 2px solid #333;
+            background-color: white;
+        }
+
+        .lane-header {
+            background-color: #333;
+            color: white;
+            padding: 8px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+        }
+
+        .lane-header.active {
+            background-color: #0066cc;
+        }
+
+        .lane-queue {
+            padding: 15px;
+            min-height: 60px;
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            overflow-x: auto;
+        }
+
+        .vehicle {
+            min-width: 60px;
+            height: 40px;
+            border: 2px solid #333;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 10px;
+            font-weight: bold;
+            transition: transform 0.5s ease, opacity 0.5s ease;
+            position: relative;
+        }
+
+        .vehicle::before {
+            content: attr(data-type);
+            position: absolute;
+            top: -18px;
+            font-size: 8px;
+            background: #333;
+            color: white;
+            padding: 2px 4px;
+        }
+
+        .vehicle.AMBULANCE {
+            background-color: #ff4444;
+            color: white;
+        }
+
+        .vehicle.FIRE {
+            background-color: #ff9933;
+            color: white;
+        }
+
+        .vehicle.POLICE {
+            background-color: #4444ff;
+            color: white;
+        }
+
+        .vehicle.VIP {
+            background-color: #9933ff;
+            color: white;
+        }
+
+        .vehicle.BUS {
+            background-color: #ffdd33;
+            color: #333;
+        }
+
+        .vehicle.NORMAL {
+            background-color: #999;
+            color: white;
+        }
+
+        .vehicle.moving {
+            transform: translateX(100px);
+            opacity: 0;
+        }
+
+        .tables-container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+
+        .table-section {
+            border: 2px solid #333;
+            padding: 15px;
+        }
+
+        .table-section h2 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #333;
+            padding-bottom: 5px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px;
+        }
+
+        th, td {
+            border: 1px solid #333;
+            padding: 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #333;
+            color: white;
+            font-weight: bold;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+
+        .legend {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            margin-top: 20px;
+            padding: 15px;
+            border: 2px solid #333;
+            background-color: #f9f9f9;
+            flex-wrap: wrap;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 11px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border: 2px solid #333;
+        }
+
+        @media (max-width: 768px) {
+            .tables-container {
+                grid-template-columns: 1fr;
+            }
+
+            .status-bar {
+                grid-template-columns: repeat(2, 1fr);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>PRIORITY-BASED TRAFFIC SIMULATOR</h1>
+
+        <div class="controls">
+            <button id="btn-emergency">EMERGENCY</button>
+            <button id="btn-accident">ACCIDENT</button>
+            <button id="btn-school-zone">SCHOOL ZONE</button>
+            <button id="btn-rush-hour">RUSH HOUR</button>
+            <button id="btn-tie-case">TIE CASE</button>
+            <button id="btn-mode">MODE: ROUND ROBIN</button>
+        </div>
+
+        <div class="status-bar">
+            <div class="status-item">
+                <div class="status-label">CURRENT TIME</div>
+                <div class="status-value" id="current-time">0</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">VEHICLES SERVED</div>
+                <div class="status-value" id="vehicles-served">0</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">AVG WAIT TIME</div>
+                <div class="status-value" id="avg-wait-time">0.0</div>
+            </div>
+            <div class="status-item">
+                <div class="status-label">SIGNAL SWITCHES</div>
+                <div class="status-value" id="signal-switches">0</div>
+            </div>
+        </div>
+
+        <div class="lanes-container">
+            <div class="lane" id="lane-0">
+                <div class="lane-header">
+                    <span>LANE 0</span>
+                    <span>Priority: <span class="lane-priority">0</span> | Queue: <span class="lane-queue-length">0</span></span>
+                </div>
+                <div class="lane-queue"></div>
+            </div>
+            <div class="lane" id="lane-1">
+                <div class="lane-header">
+                    <span>LANE 1</span>
+                    <span>Priority: <span class="lane-priority">0</span> | Queue: <span class="lane-queue-length">0</span></span>
+                </div>
+                <div class="lane-queue"></div>
+            </div>
+            <div class="lane" id="lane-2">
+                <div class="lane-header">
+                    <span>LANE 2</span>
+                    <span>Priority: <span class="lane-priority">0</span> | Queue: <span class="lane-queue-length">0</span></span>
+                </div>
+                <div class="lane-queue"></div>
+            </div>
+            <div class="lane" id="lane-3">
+                <div class="lane-header">
+                    <span>LANE 3</span>
+                    <span>Priority: <span class="lane-priority">0</span> | Queue: <span class="lane-queue-length">0</span></span>
+                </div>
+                <div class="lane-queue"></div>
+            </div>
+        </div>
+
+        <div class="tables-container">
+            <div class="table-section">
+                <h2>PRIORITY QUEUE STATUS</h2>
+                <table id="priority-queue-table">
+                    <thead>
+                        <tr>
+                            <th>Lane ID</th>
+                            <th>Priority</th>
+                            <th>Queue Length</th>
+                            <th>Top Vehicle</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+
+            <div class="table-section">
+                <h2>ALGORITHM COMPARISON</h2>
+                <table id="comparison-table">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            <th>Round Robin</th>
+                            <th>Priority Queue</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Avg Wait Time</td>
+                            <td id="rr-wait">-</td>
+                            <td id="pq-wait">-</td>
+                        </tr>
+                        <tr>
+                            <td>Vehicles Served</td>
+                            <td id="rr-served">-</td>
+                            <td id="pq-served">-</td>
+                        </tr>
+                        <tr>
+                            <td>Signal Switches</td>
+                            <td id="rr-switches">-</td>
+                            <td id="pq-switches">-</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #ff4444;"></div>
+                <span>AMBULANCE</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #ff9933;"></div>
+                <span>FIRE</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #4444ff;"></div>
+                <span>POLICE</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #9933ff;"></div>
+                <span>VIP</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #ffdd33;"></div>
+                <span>BUS</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background-color: #999;"></div>
+                <span>NORMAL</span>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentMode = 'ROUND_ROBIN';
+        let scenarioFlags = {
+            emergency: false,
+            accident: false,
+            schoolZone: false,
+            rushHour: false,
+            tieCase: false
+        };
+
+        let rrStats = { avgWaitTime: 0, served: 0, switches: 0 };
+        let pqStats = { avgWaitTime: 0, served: 0, switches: 0 };
+
+        const btnEmergency = document.getElementById('btn-emergency');
+        const btnAccident = document.getElementById('btn-accident');
+        const btnSchoolZone = document.getElementById('btn-school-zone');
+        const btnRushHour = document.getElementById('btn-rush-hour');
+        const btnTieCase = document.getElementById('btn-tie-case');
+        const btnMode = document.getElementById('btn-mode');
+
+        btnEmergency.addEventListener('click', () => toggleScenario('emergency', btnEmergency));
+        btnAccident.addEventListener('click', () => toggleScenario('accident', btnAccident));
+        btnSchoolZone.addEventListener('click', () => toggleScenario('schoolZone', btnSchoolZone));
+        btnRushHour.addEventListener('click', () => toggleScenario('rushHour', btnRushHour));
+        btnTieCase.addEventListener('click', () => toggleScenario('tieCase', btnTieCase));
+        btnMode.addEventListener('click', toggleMode);
+
+        function toggleScenario(scenario, button) {
+            scenarioFlags[scenario] = !scenarioFlags[scenario];
+            button.classList.toggle('active');
+        }
+
+        function toggleMode() {
+            currentMode = currentMode === 'ROUND_ROBIN' ? 'PRIORITY_QUEUE_SCHEDULING' : 'ROUND_ROBIN';
+            btnMode.textContent = `MODE: ${currentMode.replace('_', ' ')}`;
+        }
+
+        function updateUI(data) {
+            document.getElementById('current-time').textContent = data.current_time;
+            document.getElementById('vehicles-served').textContent = data.performance_metrics.total_vehicles_served;
+            document.getElementById('avg-wait-time').textContent = data.performance_metrics.average_waiting_time.toFixed(1);
+            document.getElementById('signal-switches').textContent = data.performance_metrics.signal_switch_count;
+
+            for (let i = 0; i < 4; i++) {
+                const lane = data.lanes[i];
+                const laneElement = document.getElementById(`lane-${i}`);
+                const header = laneElement.querySelector('.lane-header');
+                const queueElement = laneElement.querySelector('.lane-queue');
+
+                header.classList.toggle('active', i === data.selected_lane);
+                header.querySelector('.lane-priority').textContent = lane.priority;
+                header.querySelector('.lane-queue-length').textContent = lane.queue_length;
+
+                queueElement.innerHTML = '';
+                lane.vehicles.forEach((vehicle, idx) => {
+                    const vehicleElement = document.createElement('div');
+                    vehicleElement.className = `vehicle ${vehicle.type}`;
+                    vehicleElement.setAttribute('data-type', vehicle.type);
+                    vehicleElement.textContent = vehicle.vehicle_number;
+
+                    if (idx === 0 && i === data.selected_lane && data.vehicles_moved_this_cycle > 0) {
+                        setTimeout(() => {
+                            vehicleElement.classList.add('moving');
+                        }, 100);
+                    }
+
+                    queueElement.appendChild(vehicleElement);
+                });
+            }
+
+            updatePriorityQueueTable(data.lanes);
+
+            if (data.scheduling_mode === 'ROUND_ROBIN') {
+                rrStats = {
+                    avgWaitTime: data.performance_metrics.average_waiting_time,
+                    served: data.performance_metrics.total_vehicles_served,
+                    switches: data.performance_metrics.signal_switch_count
+                };
+            } else {
+                pqStats = {
+                    avgWaitTime: data.performance_metrics.average_waiting_time,
+                    served: data.performance_metrics.total_vehicles_served,
+                    switches: data.performance_metrics.signal_switch_count
+                };
+            }
+
+            updateComparisonTable();
+        }
+
+        function updatePriorityQueueTable(lanes) {
+            const tbody = document.querySelector('#priority-queue-table tbody');
+            tbody.innerHTML = '';
+
+            lanes.forEach(lane => {
+                const row = document.createElement('tr');
+                const topVehicle = lane.vehicles.length > 0 ?
+                    `${lane.vehicles[0].vehicle_number} (${lane.vehicles[0].type})` :
+                    '-';
+
+                row.innerHTML = `
+                    <td>Lane ${lane.lane_id}</td>
+                    <td>${lane.priority}</td>
+                    <td>${lane.queue_length}</td>
+                    <td>${topVehicle}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        function updateComparisonTable() {
+            document.getElementById('rr-wait').textContent = rrStats.avgWaitTime.toFixed(1);
+            document.getElementById('rr-served').textContent = rrStats.served;
+            document.getElementById('rr-switches').textContent = rrStats.switches;
+
+            document.getElementById('pq-wait').textContent = pqStats.avgWaitTime.toFixed(1);
+            document.getElementById('pq-served').textContent = pqStats.served;
+            document.getElementById('pq-switches').textContent = pqStats.switches;
+        }
+
+        function generateMockData() {
+            const time = Date.now() % 1000;
+            const mode = currentMode;
+
+            const lanes = [];
+            for (let i = 0; i < 4; i++) {
+                const vehicles = [];
+                const numVehicles = Math.floor(Math.random() * 5);
+
+                for (let j = 0; j < numVehicles; j++) {
+                    const types = ['NORMAL', 'BUS', 'VIP', 'AMBULANCE', 'FIRE', 'POLICE'];
+                    const directions = ['LEFT', 'RIGHT', 'STRAIGHT'];
+
+                    vehicles.push({
+                        vehicle_number: `V${i}${j}${Math.floor(Math.random() * 100)}`,
+                        type: scenarioFlags.emergency && j === 0 ? 'AMBULANCE' : types[Math.floor(Math.random() * types.length)],
+                        arrival_time: time - Math.floor(Math.random() * 100),
+                        direction: directions[Math.floor(Math.random() * directions.length)]
+                    });
+                }
+
+                const priority = vehicles.length * 10 +
+                                (vehicles.some(v => v.type === 'AMBULANCE') ? 1000 : 0) +
+                                (scenarioFlags.accident ? 400 : 0) +
+                                (scenarioFlags.rushHour ? 150 : 0);
+
+                lanes.push({
+                    lane_id: i,
+                    priority: priority,
+                    queue_length: vehicles.length,
+                    vehicles: vehicles
+                });
+            }
+
+            const selectedLane = mode === 'PRIORITY_QUEUE_SCHEDULING' ?
+                lanes.reduce((max, lane) => lane.priority > max.priority ? lane : max, lanes[0]).lane_id :
+                time % 4;
+
+            return {
+                current_time: time,
+                scheduling_mode: mode,
+                selected_lane: selectedLane,
+                vehicles_moved_this_cycle: Math.floor(Math.random() * 3),
+                performance_metrics: {
+                    total_vehicles_served: Math.floor(time / 10),
+                    total_waiting_time: Math.floor(time * 3),
+                    average_waiting_time: 30 + Math.random() * 20,
+                    signal_switch_count: Math.floor(time / 20)
+                },
+                scenario_flags: {
+                    is_main_road: false,
+                    is_accident: scenarioFlags.accident,
+                    is_school_zone: scenarioFlags.schoolZone,
+                    is_heavy_weather: false,
+                    is_rush_hour: scenarioFlags.rushHour,
+                    has_pedestrian_crossing: false
+                },
+                lanes: lanes
+            };
+        }
+
+        function fetchData() {
+            const mockData = generateMockData();
+            updateUI(mockData);
+        }
+
+        setInterval(fetchData, 2000);
+        fetchData();
+    </script>
+</body>
+</html>
