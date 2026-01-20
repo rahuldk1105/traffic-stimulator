@@ -6,7 +6,6 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, '../public')));
 
 let currentSimulation = null;
 let latestState = null;
@@ -52,7 +51,7 @@ app.post('/api/start', (req, res) => {
 
     // Use absolute path relative to this file
     const simulatorPath = path.join(__dirname, '../backend/traffic_sim');
-    
+
     try {
         currentSimulation = spawn(simulatorPath, args);
     } catch (err) {
@@ -64,7 +63,7 @@ app.post('/api/start', (req, res) => {
 
     currentSimulation.stdout.on('data', (data) => {
         outputBuffer += data.toString();
-        
+
         const lines = outputBuffer.split('\n');
         outputBuffer = lines.pop(); // Keep partial line
 
@@ -114,6 +113,8 @@ app.get('/api/state', (req, res) => {
         state: latestState
     });
 });
+
+app.use(express.static(path.join(__dirname, '../public')));
 
 app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
