@@ -814,3 +814,74 @@ void printSearchResultJSON(char* vehicle_number, SearchResult linearResult, Sear
 
     printf("}\n");
 }
+
+// ============= COMMAND-LINE ARGUMENT PARSING =============
+
+int main(int argc, char* argv[]) {
+    ScenarioFlags flags = {0, 0, 0, 0, 0, 0};
+    SchedulingMode mode = PRIORITY_QUEUE_SCHEDULING;
+    int simulation_steps = 10;
+    int time_slice = 2;
+
+    for (int i = 1; i < argc; i++) {
+        if (strcmp(argv[i], "--emergency") == 0) {
+            flags.is_accident = 1;
+        } else if (strcmp(argv[i], "--accident") == 0) {
+            flags.is_accident = 1;
+        } else if (strcmp(argv[i], "--school_zone") == 0) {
+            flags.is_school_zone = 1;
+        } else if (strcmp(argv[i], "--rush_hour") == 0) {
+            flags.is_rush_hour = 1;
+        } else if (strcmp(argv[i], "--tie_case") == 0) {
+            flags.is_main_road = 0;
+            flags.is_accident = 0;
+            flags.is_school_zone = 0;
+            flags.is_heavy_weather = 0;
+            flags.is_rush_hour = 0;
+            flags.has_pedestrian_crossing = 0;
+        } else if (strncmp(argv[i], "--algorithm=", 12) == 0) {
+            char* alg = argv[i] + 12;
+            if (strcmp(alg, "priority") == 0) {
+                mode = PRIORITY_QUEUE_SCHEDULING;
+            } else if (strcmp(alg, "round_robin") == 0) {
+                mode = ROUND_ROBIN;
+            }
+        } else if (strncmp(argv[i], "--main_road", 11) == 0) {
+            flags.is_main_road = 1;
+        } else if (strncmp(argv[i], "--heavy_weather", 15) == 0) {
+            flags.is_heavy_weather = 1;
+        } else if (strncmp(argv[i], "--pedestrian_crossing", 21) == 0) {
+            flags.has_pedestrian_crossing = 1;
+        } else if (strncmp(argv[i], "--steps=", 8) == 0) {
+            simulation_steps = atoi(argv[i] + 8);
+        }
+    }
+
+    TrafficSystem* system = createTrafficSystem();
+    SchedulingStats* stats = createSchedulingStats();
+
+    Vehicle v1 = {"V001", AMBULANCE, 0, STRAIGHT};
+    Vehicle v2 = {"V002", NORMAL, 1, LEFT};
+    Vehicle v3 = {"V003", BUS, 2, RIGHT};
+    Vehicle v4 = {"V004", VIP, 3, STRAIGHT};
+    Vehicle v5 = {"V005", FIRE, 4, LEFT};
+    Vehicle v6 = {"V006", POLICE, 5, RIGHT};
+    Vehicle v7 = {"V007", NORMAL, 6, STRAIGHT};
+    Vehicle v8 = {"V008", BUS, 7, LEFT};
+
+    addVehicleToLane(system, v1, 0);
+    addVehicleToLane(system, v2, 1);
+    addVehicleToLane(system, v3, 2);
+    addVehicleToLane(system, v4, 3);
+    addVehicleToLane(system, v5, 0);
+    addVehicleToLane(system, v6, 1);
+    addVehicleToLane(system, v7, 2);
+    addVehicleToLane(system, v8, 3);
+
+    for (int time = 0; time < simulation_steps; time++) {
+        int vehicles_moved = schedule(system, stats, mode, &flags, time_slice, time);
+        printSimulationStateJSON(system, stats, mode, &flags, time, vehicles_moved);
+    }
+
+    return 0;
+}
