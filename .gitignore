@@ -6,6 +6,12 @@ traffic_simulator.exe
 *.o
 *.obj
 
+# Node.js
+node_modules/
+package-lock.json
+npm-debug.log
+yarn-error.log
+
 # Editor files
 *.swp
 *.swo
