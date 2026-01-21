@@ -19,17 +19,22 @@ let currentState = {
     Ported from backend/traffic_sim.c
 */
 
-// CONSTANTS
-const BASE_WEIGHT = 10;
-const PRIORITY_AMBULANCE = 10000;
-const PRIORITY_FIRE = 7000;
-const PRIORITY_POLICE = 5000;
-const PRIORITY_VIP = 3000;
-const ADJUSTMENT_ACCIDENT = -4000;
-const ADJUSTMENT_SCHOOL_BUS = 2000;
-const ADJUSTMENT_WEATHER_HEAVY = 1500;
-const ADJUSTMENT_PEDESTRIAN = -2000;
-const ADJUSTMENT_MAIN_ROAD = 1000;
+// CONSTANTS (1-9 Scale)
+const BASE_WEIGHT = 0; // Type now defines the base
+const PRIORITY_AMBULANCE = 8;
+const PRIORITY_FIRE = 7;
+const PRIORITY_POLICE = 6;
+const PRIORITY_VIP = 5;
+const PRIORITY_TRUCK = 4;
+const PRIORITY_BUS = 3;
+const PRIORITY_CAR = 2;
+const PRIORITY_MOTORCYCLE = 1;
+
+const ADJUSTMENT_ACCIDENT = -10; // Complete block
+const ADJUSTMENT_SCHOOL_BUS = 2;
+const ADJUSTMENT_WEATHER_HEAVY = 1;
+const ADJUSTMENT_PEDESTRIAN = -10;
+const ADJUSTMENT_MAIN_ROAD = 1;
 
 function calculateLanePriority(lane, scenario, currentTime) {
     let lanePriority = 0;
@@ -43,30 +48,36 @@ function calculateLanePriority(lane, scenario, currentTime) {
         let waitTime = currentTime - v.arrival_time;
         if (waitTime < 0) waitTime = 0;
 
-        const basePriority = BASE_WEIGHT + waitTime;
+        // Base Priority by Type (1-9)
+        let typeBase = PRIORITY_CAR;
+        if (v.type === 'AMBULANCE') typeBase = PRIORITY_AMBULANCE;
+        else if (v.type === 'FIRE') typeBase = PRIORITY_FIRE;
+        else if (v.type === 'POLICE') typeBase = PRIORITY_POLICE;
+        else if (v.type === 'VIP') typeBase = PRIORITY_VIP;
+        else if (v.type === 'TRUCK') typeBase = PRIORITY_TRUCK;
+        else if (v.type === 'BUS') typeBase = PRIORITY_BUS;
+        else if (v.type === 'MOTORCYCLE') typeBase = PRIORITY_MOTORCYCLE;
+
+        // Waiting Time Bonus (0.1 per second to keep in scale)
+        const waitBonus = waitTime * 0.1;
+
+        const basePriority = typeBase + waitBonus;
         let vPriority = basePriority;
         let scenarioBoost = 0;
 
-        // Vehicle Type Priorities (Base)
-        if (v.type === 'AMBULANCE') {
-            vPriority += PRIORITY_AMBULANCE;
+        // Add to boostReasons if it's a priority vehicle
+        if (v.type === 'AMBULANCE' || v.type === 'FIRE' || v.type === 'POLICE') {
             boostReasons.add("🚑 Emergency");
-        } else if (v.type === 'FIRE') {
-            vPriority += PRIORITY_FIRE;
-            boostReasons.add("🚒 Emergency");
-        } else if (v.type === 'POLICE') {
-            vPriority += PRIORITY_POLICE;
-            boostReasons.add("🚓 Emergency");
         } else if (v.type === 'VIP') {
-            vPriority += PRIORITY_VIP;
             boostReasons.add("🌟 VIP");
         }
 
         // --- SCENARIO VEHICLE BOOSTS ---
         if (scenario.is_school_zone && v.type === 'BUS') {
-            scenarioBoost += ADJUSTMENT_SCHOOL_BUS;
-            vPriority += ADJUSTMENT_SCHOOL_BUS;
-            boostReasons.add("🚌 School Bus");
+            // Priority boost in school zones
+            scenarioBoost += 5; // Becomes 3 + 5 = 8 (Ambulance level)
+            vPriority += 5;
+            boostReasons.add("🚌 School Bus Priority");
         }
         if (scenario.is_vip && v.type === 'VIP') {
             scenarioBoost += 5000;

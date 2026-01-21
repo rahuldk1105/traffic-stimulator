@@ -37,6 +37,12 @@ const state = {
     waitingForDecision: false,
     simulationMode: 'PRIORITY',
 
+    // Metrics Tracking
+    metrics: {
+        'ROUND_ROBIN': { totalWait: 0, served: 0, typeData: {} },
+        'PRIORITY': { totalWait: 0, served: 0, typeData: {} }
+    },
+
     // Limits
     activeVehicleCount: 0,
     totalProcessedForStop: 0, // Counts cleared vehicles to check "processed"
@@ -147,6 +153,8 @@ function initApp() {
                         <div class="legend-item"><div class="legend-color" style="background-color: #003366; border: 1px solid #fff;"></div><span>POLICE</span></div>
                         <div class="legend-item"><div class="legend-color" style="background-color: #111; border: 1px solid #ffd700;"></div><span>VIP</span></div>
                         <div class="legend-item"><div class="legend-color" style="background-color: #ffcc00;"></div><span>BUS</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #8B4513;"></div><span>TRUCK</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #FF6347;"></div><span>MOTORCYCLE</span></div>
                         <div class="legend-item"><div class="legend-color" style="background-color: #aab;"></div><span>NORMAL</span></div>
                     </div>
 
@@ -201,11 +209,14 @@ function initApp() {
                             <label>Vehicle Type</label>
                             <select id="inject-type" class="control-input">
                                 <option value="NORMAL">Car (Normal)</option>
+                                <option value="TRUCK">Truck 🚚</option>
+                                <option value="MOTORCYCLE">Motorcycle 🏍️</option>
                                 <option value="AMBULANCE">Ambulance 🚑</option>
                                 <option value="FIRE">Fire Truck 🚒</option>
                                 <option value="POLICE">Police 🚓</option>
                                 <option value="BUS">Bus 🚌</option>
                                 <option value="VIP">VIP 🌟</option>
+                                <option value="RANDOM">Random Mixed 🎲</option>
                             </select>
                         </div>
                         <div class="control-group">
@@ -217,11 +228,15 @@ function initApp() {
                             </select>
                         </div>
                         <div class="control-group">
+                            <label>Quantity</label>
+                            <input type="number" id="inject-quantity" class="control-input" value="1" min="1" max="10" style="width: 100%; padding: 5px;">
+                        </div>
+                        <div class="control-group">
                             <label>Vehicle ID (Optional)</label>
                             <input type="text" id="inject-id" class="control-input" placeholder="e.g. V99" style="width: 100%; padding: 5px;">
                         </div>
                         <button id="btn-inject" class="btn-add-vehicle">
-                            ➕ Add Vehicle
+                            ➕ Add Vehicle(s)
                         </button>
                     </div>
 
@@ -255,12 +270,37 @@ function initApp() {
                                 </thead>
                                 <tbody>
                                     <tr>
-                                        <td>Wait</td>
+                                        <td>Wait (Total)</td>
                                         <td id="rr-wait">-</td>
                                         <td id="pq-wait">-</td>
                                     </tr>
+                                    <tr style="font-size: 0.8em; color: #888;">
+                                        <td>- Car</td>
+                                        <td id="rr-wait-NORMAL">-</td>
+                                        <td id="pq-wait-NORMAL">-</td>
+                                    </tr>
+                                    <tr style="font-size: 0.8em; color: #888;">
+                                        <td>- Bus</td>
+                                        <td id="rr-wait-BUS">-</td>
+                                        <td id="pq-wait-BUS">-</td>
+                                    </tr>
+                                    <tr style="font-size: 0.8em; color: #888;">
+                                        <td>- Truck</td>
+                                        <td id="rr-wait-TRUCK">-</td>
+                                        <td id="pq-wait-TRUCK">-</td>
+                                    </tr>
+                                    <tr style="font-size: 0.8em; color: #888;">
+                                        <td>- Bike</td>
+                                        <td id="rr-wait-MOTORCYCLE">-</td>
+                                        <td id="pq-wait-MOTORCYCLE">-</td>
+                                    </tr>
+                                    <tr style="font-size: 0.8em; color: #888;">
+                                        <td>- Emergency</td>
+                                        <td id="rr-wait-EMG">-</td>
+                                        <td id="pq-wait-EMG">-</td>
+                                    </tr>
                                     <tr>
-                                        <td>Thrup</td>
+                                        <td title="Throughput: Vehicles served per minute">Thrup ℹ️</td>
                                         <td id="rr-throughput">-</td>
                                         <td id="pq-throughput">-</td>
                                     </tr>
@@ -287,17 +327,19 @@ function initApp() {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚑 Ambulance</td><td style="font-weight:bold;">10,000</td></tr>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚒 Fire Truck</td><td style="font-weight:bold; color:#ff4444">7,000</td></tr>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚓 Police</td><td style="font-weight:bold; color:#6666ff">5,000</td></tr>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🌟 VIP</td><td style="font-weight:bold; color:#ffd700">3,000</td></tr>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚌 Bus</td><td>0</td></tr>
-                                    <tr><td style="padding: 4px;">🚗 Normal</td><td>10</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚑 Ambulance</td><td style="font-weight:bold;">8</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚒 Fire Truck</td><td style="font-weight:bold;">7</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚓 Police Car</td><td style="font-weight:bold;">6</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🌟 VIP Convoy</td><td style="font-weight:bold;">5</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚚 Truck</td><td style="font-weight:bold;">4</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚌 Public Bus</td><td style="font-weight:bold;">3</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚗 Standard Car</td><td style="font-weight:bold;">2</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🏍️ Motorcycle</td><td style="font-weight:bold;">1</td></tr>
                                 </tbody>
                             </table>
-                            <div style="font-size: 0.75rem; color: #aaa; margin-top: 8px; font-style: italic; line-height: 1.2;">
-                                Formula: Priority = Base + Wait Time (1/sec) + Scenario Bonuses
-                            </div>
+                            <p style="font-size: 0.75rem; color: #888; margin-top: 8px;">
+                                * Formula: Priority = Base + (Wait Time × 0.1) + Scenario Boost
+                            </p>
                         </div>
 
                     </div>
@@ -345,8 +387,21 @@ function initControls() {
             const type = document.getElementById('inject-type').value;
             const dir = document.getElementById('inject-dir').value;
             const customId = document.getElementById('inject-id').value.trim() || null;
+            const quantity = parseInt(document.getElementById('inject-quantity').value) || 1;
 
-            addVehicle(lane, type, dir, customId);
+            // Add multiple vehicles
+            const types = ['NORMAL', 'TRUCK', 'MOTORCYCLE', 'AMBULANCE', 'FIRE', 'POLICE', 'BUS', 'VIP'];
+
+            for (let i = 0; i < quantity; i++) {
+                // Determine type
+                const vType = (type === 'RANDOM') ? types[Math.floor(Math.random() * types.length)] : type;
+
+                // Only use custom ID for first vehicle if specified
+                const vehicleId = (customId && i === 0) ? customId : null;
+                addVehicle(lane, vType, dir, vehicleId);
+            }
+
+            console.log(`[UI] Added ${quantity} vehicle(s) of type ${type} to Lane ${lane}`);
         };
     }
 
@@ -364,8 +419,39 @@ function initControls() {
     const btnHashDemo = document.getElementById('btn-hash-demo');
     if (btnHashDemo) btnHashDemo.onclick = runHashCollisionDemo;
 
+    // Add Verification Button logic to help verify
+    console.log("[HASH] Verification Suite Ready. Run 'runVerificationSuite()' in console to verify math.");
+
     initializeAnalyticsChart();
 }
+
+/**
+ * VERIFICATION SUITE - MATHEMATICAL PROOF
+ * Runs 3 complex test cases to verify the formula: idx = (h1 + i * h2) % m
+ */
+window.runVerificationSuite = function () {
+    console.log("%c --- DOUBLE HASHING VERIFICATION ---", "color: #00ff00; font-weight: bold; font-size: 16px; border-bottom: 2px solid #00ff00;");
+
+    // 1. Reset Table
+    state.hashTable = new Array(CONFIG.HASH_TABLE_SIZE).fill(null);
+    state.showHashing = true;
+    document.getElementById('hashing-panel').classList.add('active');
+
+    // These test cases are carefully chosen to force collisions on Index 0 and Index 2
+    const cases = [
+        { id: "A", task: "Base Entry (h1=0, h2=5)" },
+        { id: "N", task: "Collision at 0 (h1=0, h2=6). Expect jump to Index 6." },
+        { id: "[", task: "Triple collision at 0 (h1=0, h2=7). Expect jump to Index 7." },
+        { id: "w", task: "Collision at 2 (h1=2, h2=7). Expect jump to Index 9." }
+    ];
+
+    cases.forEach((tc, idx) => {
+        setTimeout(() => {
+            console.log(`%c[TEST CASE ${idx + 1}] %cAdding ${tc.id}: ${tc.task}`, "color: #fff; background: #333; padding: 2px 5px;", "color: #00dbff;");
+            insertToHashTable(tc.id);
+        }, idx * 1200);
+    });
+};
 
 // ... existing code ...
 
@@ -426,6 +512,17 @@ function setMode(mode) {
 
     const modeRrBtn = document.getElementById('mode-rr');
     if (modeRrBtn) modeRrBtn.classList.toggle('active', mode === 'ROUND_ROBIN');
+
+    // Hide scenarios in Round Robin mode
+    const sidebar = document.querySelector('.sidebar');
+    if (sidebar) {
+        if (mode === 'ROUND_ROBIN') {
+            sidebar.style.display = 'none';
+        } else {
+            sidebar.style.display = 'flex';
+        }
+    }
+
     console.log(`[FRONTEND] Mode set to: ${mode}`);
 }
 
@@ -458,8 +555,8 @@ function insertToHashTable(vid) {
     }
 
     if (i < m) {
-        state.hashTable[idx] = { vid, key, h1, h2, i, finalIdx: idx };
-        console.log(`[HASH] SUCCESS: ${vid} inserted at Index ${idx} after ${i} probes.`);
+        state.hashTable[idx] = { vid, key, h1, h2, probes: i + 1, finalIdx: idx };
+        console.log(`[HASH] SUCCESS: ${vid} inserted at Index ${idx} after ${i + 1} probes.`);
     } else {
         console.log(`[HASH] FAIL: Table Full! Could not insert ${vid}`);
     }
@@ -483,7 +580,7 @@ function renderHashView() {
                 <td>${slot.key}</td>
                 <td>${slot.h1}</td>
                 <td>${slot.h2}</td>
-                <td>${slot.i > 0 ? 'Probe ' + slot.i : 'Direct'}</td>
+                <td>${slot.probes}</td>
             `;
         } else {
             row.innerHTML = `
@@ -661,6 +758,9 @@ function startSimulation() {
     state.totalProcessedForStop = 0;
     state.stats.served = 0;
     state.stats.switches = 0;
+    state.simStartTime = Date.now();
+    state.metrics['ROUND_ROBIN'] = { totalWait: 0, served: 0, typeData: {} };
+    state.metrics['PRIORITY'] = { totalWait: 0, served: 0, typeData: {} };
 
     // Clear Lanes
     state.lanes.forEach(l => l.vehicles = []);
@@ -729,9 +829,8 @@ function generateInitialTraffic() {
     const hasVehicles = state.lanes.some(l => l.vehicles.length > 0);
     if (hasVehicles) return;
 
-    // Use active scenarios to bias initial traffic?
-    // For now, standard random
-    const types = ['NORMAL', 'BUS'];
+    // Include variety of vehicle types
+    const types = ['NORMAL', 'NORMAL', 'TRUCK', 'MOTORCYCLE', 'BUS'];
     const directions = ['STRAIGHT', 'LEFT', 'RIGHT'];
 
     state.lanes.forEach(lane => {
@@ -856,7 +955,22 @@ function update(dt, currentTime) {
                 let rawT = elapsed / CONFIG.VEHICLE_MOVE_DURATION;
 
                 if (rawT >= 1) {
-                    // Remove vehicle
+                    // Metrics
+                    const waitTime = (currentTime - v.arrivalTime) / 1000;
+                    const modeMetrics = state.metrics[state.simulationMode];
+                    modeMetrics.totalWait += waitTime;
+                    modeMetrics.served++;
+
+                    // Per-type metrics
+                    let displayType = v.type;
+                    if (['AMBULANCE', 'FIRE', 'POLICE'].includes(v.type)) displayType = 'EMG';
+
+                    if (!modeMetrics.typeData[displayType]) {
+                        modeMetrics.typeData[displayType] = { total: 0, count: 0 };
+                    }
+                    modeMetrics.typeData[displayType].total += waitTime;
+                    modeMetrics.typeData[displayType].count++;
+
                     lane.vehicles.splice(i, 1);
                     i--;
                     state.stats.served++;
@@ -924,7 +1038,7 @@ function update(dt, currentTime) {
 
     // Auto-spawn logic
     if (state.totalSpawned < CONFIG.MAX_VEHICLES_LIMIT && Math.random() < 0.01) { // 1% chance per frame
-        const types = ['NORMAL', 'NORMAL', 'BUS', 'NORMAL'];
+        const types = ['NORMAL', 'NORMAL', 'TRUCK', 'MOTORCYCLE', 'BUS'];
         const type = types[Math.floor(Math.random() * types.length)];
         spawnVehicle(type);
     }
@@ -1144,7 +1258,6 @@ function render() {
                 el = document.createElement('div');
                 el.id = v.id;
                 el.className = `vehicle ${v.type}`;
-                // el.textContent = v.id; // Removed for visuals
                 el.dataset.type = v.type;
                 layer.appendChild(el);
             }
@@ -1164,53 +1277,43 @@ function render() {
     });
 
     // 3. Update Comparison Table
-    // Calculate metrics
-    const durationMin = (performance.now() - state.lastTime) / 60000; // Not quite right, lastTime is dt
-    // We need total run time.
-    // Let's use simple estimation or state.stats.
+    const modes = ['ROUND_ROBIN', 'PRIORITY'];
+    const pfx = { 'ROUND_ROBIN': 'rr', 'PRIORITY': 'pq' };
 
-    // Avg Wait: We don't track individual wait times on frontend fully yet (only arrivalTime).
-    // Let's approximate using queue lengths over time? Or just use backend reported avg wait?
-    // Backend returns `avg_wait` if implemented? 
-    // Wait, the C engine returns `out_avg_wait` but server might not send it yet?
-    // Let's check `decision` object in makeDecision.
-    // If not available, we simulate a dummy value or calculate from frontend served vehicles if tracked.
+    modes.forEach(mode => {
+        const m = state.metrics[mode];
+        const prefix = pfx[mode];
 
-    // Simulating dynamic values for demo if real data missing:
-    // PQ wait is usually lower. RR wait higher.
-    const baseWait = state.lanes.reduce((acc, l) => acc + l.vehicles.length, 0) * 2;
-    const pqWait = (baseWait * 0.8).toFixed(1) + 's';
-    // Throughput: served / time
-    if (!state.simStartTime && state.isRunning) state.simStartTime = Date.now();
+        // Overall
+        document.getElementById(`${prefix}-wait`).textContent = m.served > 0 ? (m.totalWait / m.served).toFixed(1) + 's' : '-';
 
-    let throughput = "0.0";
-    if (state.simStartTime && state.stats.served > 0) {
-        const mins = (Date.now() - state.simStartTime) / 60000;
-        if (mins > 0) throughput = (state.stats.served / mins).toFixed(1);
-    }
+        // Types
+        const types = ['NORMAL', 'BUS', 'TRUCK', 'MOTORCYCLE', 'EMG'];
+        types.forEach(t => {
+            const el = document.getElementById(`${prefix}-wait-${t}`);
+            if (el) {
+                const data = m.typeData[t];
+                el.textContent = (data && data.count > 0) ? (data.total / data.count).toFixed(1) + 's' : '-';
+            }
+        });
 
-    // Update comparison table based on mode
-    const rrWaitEl = document.getElementById('rr-wait');
-    if (rrWaitEl) {
-        const headerRR = document.getElementById('header-rr');
-        const headerPQ = document.getElementById('header-pq');
+        // Thrup
+        if (state.simStartTime && state.isRunning) {
+            const elapsedSec = (Date.now() - state.simStartTime) / 1000;
+            document.getElementById(`${prefix}-throughput`).textContent = m.served > 0 ? (m.served / elapsedSec * 60).toFixed(1) + '/m' : '-';
+        }
+    });
 
+    // Highlight active mode headers
+    const headerRR = document.getElementById('header-rr');
+    const headerPQ = document.getElementById('header-pq');
+    if (headerRR && headerPQ) {
         if (state.simulationMode === 'ROUND_ROBIN') {
-            if (headerRR) headerRR.style.backgroundColor = '#28a745';
-            if (headerPQ) headerPQ.style.backgroundColor = '#333';
-            rrWaitEl.textContent = 'Active';
-            document.getElementById('rr-throughput').textContent = throughput;
-
-            document.getElementById('pq-wait').textContent = '-';
-            document.getElementById('pq-throughput').textContent = '-';
+            headerRR.style.backgroundColor = '#28a745';
+            headerPQ.style.backgroundColor = '#333';
         } else {
-            if (headerPQ) headerPQ.style.backgroundColor = '#28a745';
-            if (headerRR) headerRR.style.backgroundColor = '#333';
-            document.getElementById('pq-wait').textContent = 'Active';
-            document.getElementById('pq-throughput').textContent = throughput;
-
-            document.getElementById('rr-wait').textContent = '-';
-            document.getElementById('rr-throughput').textContent = '-';
+            headerPQ.style.backgroundColor = '#28a745';
+            headerRR.style.backgroundColor = '#333';
         }
     }
 }
@@ -1233,25 +1336,36 @@ function updatePriorityViz(heap) {
             const reasons = [];
             const sc = state.scenario;
             const lId = item.lane_id;
+            const lane = state.lanes[lId];
+            const vehicleCount = lane ? lane.vehicles.filter(v => v.state === 'queued').length : 0;
 
-            // Lane Constraints
-            if (sc.is_main_road && (lId === 0 || lId === 2)) reasons.push("🛣️ Main Road");
-            if (sc.is_accident && lId === 1) reasons.push("⚠️ BLOCKED");
-            if (sc.is_school_zone && lId === 3) reasons.push("🚸 School Lane");
-            if (sc.has_pedestrian_crossing && lId === 0) reasons.push("🚶 STOP");
-            if (sc.is_rush_hour) reasons.push("🕒 Rush Hour");
-            if (sc.is_heavy_weather) reasons.push("🌧️ Weather");
+            // --- LANE LEVEL ADJUSTMENTS ---
+            if (sc.is_main_road && (lId === 0 || lId === 2)) {
+                reasons.push("🛣️ Main Road");
+            }
+            if (sc.is_accident && lId === 1) {
+                reasons.push("⚠️ BLOCKED (Accident)");
+            }
+            if (sc.is_school_zone && lId === 3) {
+                reasons.push("🚸 School Lane");
+            }
+            if (sc.has_pedestrian_crossing && lId === 0) {
+                reasons.push("🚶 STOP (Pedestrians)");
+            }
 
-            // Vehicle Type Boosts (Always Active)
-            const laneObj = state.lanes[lId];
-            if (laneObj) {
-                const queued = laneObj.vehicles.filter(v => v.state === 'queued');
+            // Rush Hour Lane
+            if (sc.is_rush_hour && vehicleCount > 5) {
+                reasons.push("🔥 High Traffic");
+            }
+
+            if (lane) {
+                const queued = lane.vehicles.filter(v => v.state === 'queued');
                 if (queued.some(v => v.type === 'AMBULANCE')) reasons.push("🚑 Emergency");
                 if (queued.some(v => v.type === 'FIRE')) reasons.push("🚒 Emergency");
                 if (queued.some(v => v.type === 'POLICE')) reasons.push("🚓 Emergency");
                 if (queued.some(v => v.type === 'VIP')) reasons.push("🌟 VIP");
 
-                if (sc.is_school_zone && queued.some(v => v.type === 'BUS')) reasons.push("🚌 Bus Boost");
+                if (sc.is_school_zone && queued.some(v => v.type === 'BUS')) reasons.push("🚌 School Bus Priority");
             }
             boostText = [...new Set(reasons)].join(', ');
         }

@@ -609,6 +609,20 @@ button:hover {
     background: #aab; /* Metallic Blue-Grey */
 }
 
+.vehicle.TRUCK {
+    height: 70px; /* Longer than normal car */
+    width: 28px;
+    background: #8B4513; /* Brown */
+    border-radius: 4px;
+}
+
+.vehicle.MOTORCYCLE {
+    height: 35px; /* Smaller than car */
+    width: 18px;
+    background: #FF6347; /* Tomato Red */
+    border-radius: 3px;
+}
+
 /* Scenario Visual Markers */
 .scenario-marker {
     position: absolute;
