@@ -149,17 +149,99 @@ button:hover {
     flex-direction: column;
 }
 
-.injection-panel {
+/* Layout Wrappers */
+.simulation-wrapper {
+    display: flex;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+}
+
+.simulation-center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 20px;
+    overflow-y: auto;
+    background-color: #e0e0e0;
+}
+
+.right-controls {
+    width: 320px;
+    background-color: #fff;
+    border-left: 2px solid #ccc;
+    padding: 20px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+    z-index: 100;
+}
+
+/* Manual Control Panel */
+.manual-control-box {
     background-color: #f8f9fa;
     border: 1px solid #ddd;
-    border-radius: 4px;
-    padding: 10px;
-    margin-bottom: 20px;
+    border-radius: 8px;
+    padding: 15px;
     display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.manual-control-box h3 {
+    margin: 0;
+    font-size: 16px;
+    color: #333;
+    border-bottom: 2px solid #007bff;
+    padding-bottom: 5px;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.control-group label {
+    font-size: 12px;
+    font-weight: bold;
+    color: #666;
+}
+
+.control-input {
+    padding: 8px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 14px;
+}
+
+.btn-add-vehicle {
+    background-color: #28a745;
+    color: white;
+    border: none;
+    padding: 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.2s;
+    margin-top: 10px;
+    text-transform: uppercase;
+    display: flex;
     align-items: center;
     justify-content: center;
+    gap: 8px;
+}
+
+.btn-add-vehicle:hover {
+    background-color: #218838;
+}
+
+.btn-add-vehicle:active {
+    transform: scale(0.98);
 }
 
 /* Hashing Panel */
@@ -305,32 +387,42 @@ button:hover {
     display: none;
 }
 
-/* Intersection Layout */
+/* ==================== REALISM & AESTHETICS ==================== */
+
+/* Intersection Container (Ground) */
 #intersection-container {
     position: relative;
-    width: 600px; /* Constrain size for visibility */
+    width: 600px;
     height: 600px;
-    background-color: #555; /* Base ground */
+    background-color: #5ea152; /* Grass Green */
     margin-top: 20px;
-    border-radius: 8px;
-    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    border: 4px solid #4a8040;
     overflow: hidden;
 }
 
-/* The Cross Shape (Roads) */
-.road-vertical, .road-horizontal {
+/* Roads (Asphalt) */
+.road-vertical, .road-horizontal, .intersection-center {
     position: absolute;
-    background-color: #333; /* Road service */
+    background-color: #3b3b3b; /* Dark Asphalt */
     z-index: 1;
+    box-shadow: inset 0 0 20px rgba(0,0,0,0.5); /* Depth */
 }
 
+/* Road Dividers & Markings */
 .road-vertical {
-    width: 140px; /* ~2 lanes */
+    width: 140px; 
     height: 100%;
     left: 50%;
     transform: translateX(-50%);
-    border-left: 2px dashed #aaa;
-    border-right: 2px dashed #aaa;
+    /* Yellow double line center, white dashed lanes if multiple */
+    /* Use simple dashed white line for lane separation */
+    background-image: linear-gradient(to bottom, transparent 50%, #3b3b3b 50%), 
+                      linear-gradient(to right, transparent 48%, #d9d9d9 48%, #d9d9d9 52%, transparent 52%);
+    background-size: 100% 40px; 
+    border-left: 4px solid #d9d9d9;
+    border-right: 4px solid #d9d9d9;
 }
 
 .road-horizontal {
@@ -338,119 +430,182 @@ button:hover {
     width: 100%;
     top: 50%;
     transform: translateY(-50%);
-    border-top: 2px dashed #aaa;
-    border-bottom: 2px dashed #aaa;
+    background-image: linear-gradient(to right, transparent 50%, #3b3b3b 50%), 
+                      linear-gradient(to bottom, transparent 48%, #d9d9d9 48%, #d9d9d9 52%, transparent 52%);
+    background-size: 40px 100%;
+    border-top: 4px solid #d9d9d9;
+    border-bottom: 4px solid #d9d9d9;
 }
 
-/* Intersection Box */
 .intersection-center {
-    position: absolute;
     width: 140px;
     height: 140px;
-    background-color: #444; 
+    background-color: #444; /* Slightly lighter intersection box */
     left: 50%;
     top: 50%;
     transform: translate(-50%, -50%);
     z-index: 2;
-    border: 1px dashed #666;
+    /* Zebra Crossings implied at edges */
+    box-shadow: inset 0 0 10px rgba(0,0,0,0.5);
 }
 
-/* Stop Lines */
-.stop-line {
-    position: absolute;
-    background-color: white;
-    z-index: 3;
-}
-/* Stop Line North (Lane 0) */
-.stop-line.north { width: 66px; height: 4px; top: 228px; left: 232px; } 
-/* Stop Line East (Lane 1) */
-.stop-line.east { width: 4px; height: 66px; top: 232px; right: 228px; }
-/* Stop Line South (Lane 2) */
-.stop-line.south { width: 66px; height: 4px; bottom: 228px; left: 302px; }
-/* Stop Line West (Lane 3) */
-.stop-line.west { width: 4px; height: 66px; top: 302px; left: 228px; }
-
-/* Traffic Signals */
+/* Real Traffic Signals */
 .traffic-signal {
     position: absolute;
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    background-color: #333;
-    border: 2px solid #000;
-    z-index: 6;
-    box-shadow: 0 0 2px rgba(0,0,0,0.8);
-    transition: background-color 0.2s;
+    width: 24px;
+    height: 40px; /* Vertical box */
+    background-color: #222;
+    border-radius: 6px;
+    border: 1px solid #000;
+    z-index: 20;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: space-around;
+    padding: 2px 0;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.5);
 }
-.traffic-signal.north { top: 210px; left: 210px; }
-.traffic-signal.east { top: 210px; right: 210px; }
-.traffic-signal.south { bottom: 210px; right: 280px; } /* Corrected placement roughly */
-.traffic-signal.west { bottom: 280px; left: 210px; }
 
-.traffic-signal.green { background-color: #00ff00; box-shadow: 0 0 10px #00ff00; }
-.traffic-signal.red { background-color: #ff0000; box-shadow: 0 0 5px #ff0000; }
+/* Light bulbs inside signal */
+.traffic-signal .light {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background-color: #333; /* Off state (dim) */
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);
+    margin: 1px 0;
+    transition: background-color 0.2s, box-shadow 0.2s;
+}
 
-/* Vehicle Visualization */
+/* Stop Lines - Thicker */
+.stop-line {
+    background-color: white;
+    box-shadow: 0 0 2px rgba(0,0,0,0.5);
+}
+.stop-line.north { width: 70px; height: 6px; top: 224px; left: 232px; } 
+.stop-line.east { width: 6px; height: 70px; top: 232px; right: 224px; }
+.stop-line.south { width: 70px; height: 6px; bottom: 224px; left: 302px; }
+.stop-line.west { width: 6px; height: 70px; top: 302px; left: 224px; }
+
+
+/* Signal Positioning - Moved to corners */
+.traffic-signal.north { top: 200px; left: 190px; }
+.traffic-signal.east { top: 190px; right: 200px; transform: rotate(90deg); }
+.traffic-signal.south { bottom: 200px; right: 190px; transform: rotate(180deg); } 
+.traffic-signal.west { bottom: 190px; left: 200px; transform: rotate(-90deg); }
+
+/* Active States */
+/* Green Active: Green light bright, others dim */
+.traffic-signal.green .light.green { background-color: #00ff00; box-shadow: 0 0 10px #00ff00; }
+.traffic-signal.green .light.red { background-color: #330000; }
+.traffic-signal.green .light.yellow { background-color: #333300; }
+
+/* Red Active: Red light bright */
+.traffic-signal.red .light.red { background-color: #ff0000; box-shadow: 0 0 10px #ff0000; }
+.traffic-signal.red .light.green { background-color: #003300; }
+.traffic-signal.red .light.yellow { background-color: #333300; }
+
+/* Pending/Yellow state (if we had one, but we transition directly usually) */
+/* We can fake yellow flash if we wanted, but sticking to Red/Green logic */
+
+
+/* Premium Vehicle Styling */
 .vehicle {
     position: absolute;
-    width: 20px; /* Small box for top-down view */
-    height: 35px; /* Length */
-    border: 1px solid #000;
+    width: 22px; 
+    height: 38px;
     z-index: 10;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    font-size: 9px;
-    font-weight: bold;
-    color: black;
-    border-radius: 2px;
-    /* Transform origin center for rotation */
+    /* Metallic/Glossy look */
+    border-radius: 3px;
+    box-shadow: 2px 2px 5px rgba(0,0,0,0.4);
     transform-origin: center center;
-    transition: none; /* JS handles movement */
+    transition: none; 
+    
+    /* Car Shape via CSS */
+    background: linear-gradient(to bottom, #ccc 0%, #eee 40%, #ccc 100%);
+    border: 1px solid rgba(0,0,0,0.3);
+}
+
+/* Windshield */
+.vehicle::after {
+    content: '';
+    position: absolute;
+    top: 5px;
+    left: 2px;
+    right: 2px;
+    height: 8px;
+    background: linear-gradient(to bottom, #333, #111);
+    border-radius: 1px 1px 0 0;
+    opacity: 0.8;
+}
+
+/* Rear Window */
+.vehicle::before {
+    content: '';
+    position: absolute;
+    bottom: 4px;
+    left: 2px;
+    right: 2px;
+    height: 5px;
+    background: #333;
+    opacity: 0.7;
 }
 
 /* Vehicle Types Colors */
-.vehicle.AMBULANCE { background-color: #ff4444; color: white; }
-.vehicle.FIRE { background-color: #ff9933; color: black; }
-.vehicle.POLICE { background-color: #4444ff; color: white; }
-.vehicle.VIP { background-color: #9933ff; color: white; }
-.vehicle.BUS { background-color: #ffdd33; height: 50px; } /* Longer */
-.vehicle.NORMAL { background-color: #ddd; }
+.vehicle.AMBULANCE { 
+    background: #fff; 
+    border: 1px solid #cc0000;
+}
+.vehicle.AMBULANCE::after { background: #555; }
+/* Cross on roof */
+/* We can add specialized internal marking via JS or complex CSS, but kept simple */
 
-/* Remove old vehicle styles that conflict */
-.vehicle::before { display: none; }
-.vehicle.moving-out { transform: none; opacity: 1; }
-.vehicle.shifting { transform: none; }
+.vehicle.FIRE { background: #ff4400; }
+.vehicle.POLICE { background: #003366; border: 1px solid #fff; }
+.vehicle.VIP { background: #111; border: 1px solid #ffd700; } /* Black & Gold */
 
+.vehicle.BUS { 
+    height: 60px; /* Longer */
+    width: 26px; /* Wider */
+    background: #ffcc00; 
+    border-radius: 4px;
+}
+
+.vehicle.NORMAL { 
+    background: #aab; /* Metallic Blue-Grey */
+}
+
+/* Tables Container - Reset for Sidebar */
 .tables-container {
-    position: absolute;
-    bottom: 0;
-    left: 20px;
-    width: 300px;
-    max-height: 250px;
-    overflow-y: auto;
-    background: white;
-    z-index: 20;
-    display: block;
-    margin: 0;
+    /* Removed absolute positioning */
+    width: 100%;
+    /* max-height: 250px; Removed height constraint or keep for scroll */
+    background: transparent;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
 }
 
 .table-section {
-    border: 2px solid #333;
-    padding: 15px;
+    border: 1px solid #ccc; /* Lighter border */
+    padding: 10px;
+    background-color: #fff;
+    border-radius: 4px;
 }
 
 .table-section h2 {
-    font-size: 14px;
-    margin-bottom: 10px;
-    border-bottom: 2px solid #333;
-    padding-bottom: 5px;
+    font-size: 13px;
+    margin-bottom: 8px;
+    border-bottom: 1px solid #eee;
+    padding-bottom: 4px;
+    color: #555;
+    text-transform: uppercase;
 }
 
 table {
     width: 100%;
     border-collapse: collapse;
-    font-size: 12px;
+    font-size: 11px; /* Smaller font for sidebar */
 }
 
 th, td {

@@ -26,7 +26,10 @@ const CONFIG = {
 
     // Hashing
     HASH_TABLE_SIZE: 13, // Small prime for demo
-    HASH_PRIME: 7        // Smaller prime for step
+    HASH_PRIME: 7,       // Smaller prime for step
+
+    // Limits
+    MAX_VEHICLES_LIMIT: 20
 };
 
 // ==================== STATE MANAGEMENT ====================
@@ -38,6 +41,11 @@ const state = {
     vehiclesToPass: 0,
     waitingForDecision: false,
     simulationMode: 'PRIORITY',
+
+    // Limits
+    activeVehicleCount: 0,
+    totalProcessedForStop: 0, // Counts cleared vehicles to check "processed"
+    hasReachedLimit: false,
 
     lanes: Array.from({ length: 4 }, (_, i) => ({
         id: i,
@@ -265,20 +273,48 @@ function startSimulation() {
     state.vehiclesToPass = 0;
     state.waitingForDecision = false;
 
+    // Limits
+    state.activeVehicleCount = 0;
+    state.totalProcessedForStop = 0; // Tracks exit count for auto-stop? Actually stats.served tracks exits.
+    // "Automatically stop after 20 vehicles". Does this mean 20 PROCESSED or 20 CREATED?
+    // "Maintain global counter: Increment when created... Decrement when exited"
+    // "Prevent creation when totalVehicles >= MAX" -> This implies count of EXISTING or TOTAL SPAWNED?
+    // "Automatically stop after 20 vehicles processed" -> Suggests we stop after 20 have EXITED.
+    // BUT "Prevent creation when totalVehicles >= MAX" suggests a CAP on current count.
+    // Re-reading: "When totalVehicles drops to 0... Automatically stop... (20 vehicles processed)" implies we wait until all are gone.
+    // So logic: Cap creation at Total Spawns = 20. Then wait for all to exit.
+
+    state.totalSpawned = 0; // New tracker for lifetime count
+    state.activeVehicleCount = 0;
+
+    // Reset stats
+    state.stats.served = 0;
+    state.stats.switches = 0;
+
+    // Clear Lanes
+    state.lanes.forEach(l => l.vehicles = []);
+
     generateInitialTraffic();
 
     const btn = document.getElementById('btn-start');
-    btn.textContent = 'STOP SIMULATION';
-    btn.style.backgroundColor = '#ff4444';
-    btn.style.color = 'white';
+    if (btn) {
+        btn.textContent = 'STOP SIMULATION';
+        btn.style.backgroundColor = '#ff4444';
+        btn.style.color = 'white';
+    }
+
+    requestAnimationFrame(gameLoop);
 }
 
 function stopSimulation() {
     state.isRunning = false;
     const btn = document.getElementById('btn-start');
-    btn.textContent = 'START SIMULATION';
-    btn.style.backgroundColor = '';
-    btn.style.color = '';
+    if (btn) {
+        btn.textContent = 'START SIMULATION';
+        btn.style.backgroundColor = '';
+        btn.style.color = '';
+    }
+    console.log(`[SIMULATION] Stopped. Total Served: ${state.stats.served}`);
 }
 
 function generateInitialTraffic() {
@@ -304,6 +340,12 @@ function generateInitialTraffic() {
 let vehicleIdCounter = 1;
 
 function addVehicle(laneId, type, direction = 'STRAIGHT') {
+    // 1. LIMIT CHECK
+    if (state.totalSpawned >= CONFIG.MAX_VEHICLES_LIMIT) {
+        console.log(`[FRONTEND] Vehicle limit reached (${CONFIG.MAX_VEHICLES_LIMIT}). Cannot add.`);
+        return;
+    }
+
     const laneConfig = CONFIG.LANES[laneId];
     const lane = state.lanes[laneId];
     const queueIndex = lane.vehicles.length;
@@ -365,6 +407,11 @@ function addVehicle(laneId, type, direction = 'STRAIGHT') {
         state: 'queued',
         arrivalTime: Date.now()
     });
+
+    // Update Counters
+    state.activeVehicleCount++;
+    state.totalSpawned++;
+    console.log(`[FRONTEND] Vehicle Added. Active: ${state.activeVehicleCount}, Total: ${state.totalSpawned}/${CONFIG.MAX_VEHICLES_LIMIT}`);
 }
 
 // ==================== GAME LOOP ====================
@@ -412,15 +459,29 @@ function update(dt, currentTime) {
             }
             else if (v.state === 'exiting') {
                 const elapsed = currentTime - v.moveStartTime;
-                let t = elapsed / CONFIG.VEHICLE_MOVE_DURATION;
+                let rawT = elapsed / CONFIG.VEHICLE_MOVE_DURATION;
 
-                if (t >= 1) {
+                if (rawT >= 1) {
                     // Remove vehicle
                     lane.vehicles.splice(i, 1);
                     i--;
                     state.stats.served++;
+
+                    // Vehicle Exited
+                    state.activeVehicleCount--;
+                    console.log(`[FRONTEND] Vehicle Exited. Active: ${state.activeVehicleCount}`);
+
+                    // Auto-Stop Check
+                    if (state.totalSpawned >= CONFIG.MAX_VEHICLES_LIMIT && state.activeVehicleCount <= 0) {
+                        console.log(`[SIMULATION] Completed (${state.totalSpawned} vehicles processed). Stopping.`);
+                        stopSimulation();
+                    }
+
                     continue;
                 }
+
+                // Quadratic Ease-In for Acceleration
+                let t = rawT * rawT;
 
                 // Bezier Path Logic
                 const path = getPath(lane.id, v.direction);
@@ -632,167 +693,183 @@ function render() {
         if (!main) return; // Wait for DOM
 
         main.innerHTML = `
-            <header>
-                <h1>Traffic Simulator</h1>
-                <div class="mode-controls">
-                    <button id="mode-priority" class="mode-btn ${state.simulationMode === 'PRIORITY' ? 'active' : ''}">Priority Queue Mode</button>
-                    <button id="mode-rr" class="mode-btn ${state.simulationMode === 'ROUND_ROBIN' ? 'active' : ''}">Round Robin Mode</button>
-                </div>
-            </header>
-            
-            <div class="controls">
-                <button id="btn-start" style="${state.isRunning ? 'background-color:#ff4444;color:white' : ''}">${state.isRunning ? 'STOP SIMULATION' : 'START SIMULATION'}</button>
-                <div class="status-bar-mini" style="margin-left: 20px; display: inline-flex; gap: 15px; font-size: 0.9rem;">
-                    <div>Served: <span id="vehicles-served">${state.stats.served}</span></div>
-                    <div>Switches: <span id="signal-switches">${state.stats.switches}</span></div>
-                </div>
-            </div>
-
-            <div class="injection-panel">
-                <div class="injection-group">
-                    <label>Lane</label>
-                    <select id="inject-lane" class="injection-cntrl">
-                        <option value="0">North (0)</option>
-                        <option value="1">East (1)</option>
-                        <option value="2">South (2)</option>
-                        <option value="3">West (3)</option>
-                    </select>
-                </div>
-                <div class="injection-group">
-                    <label>Type</label>
-                    <select id="inject-type" class="injection-cntrl">
-                        <option value="NORMAL">Normal</option>
-                        <option value="AMBULANCE">Ambulance</option>
-                        <option value="FIRE">Fire Truck</option>
-                        <option value="POLICE">Police</option>
-                        <option value="BUS">Bus</option>
-                        <option value="VIP">VIP</option>
-                    </select>
-                </div>
-                <div class="injection-group">
-                    <label>Turn</label>
-                    <select id="inject-dir" class="injection-cntrl">
-                        <option value="STRAIGHT">Straight</option>
-                        <option value="LEFT">Left</option>
-                        <option value="RIGHT">Right</option>
-                    </select>
-                </div>
-                <button id="btn-inject">ADD VEHICLE</button>
-            </div>
-
-            <div id="intersection-container">
-                <div class="road-vertical"></div>
-                <div class="road-horizontal"></div>
-                <div class="intersection-center"></div>
+            <div class="simulation-wrapper">
                 
-                <!-- Stop Lines -->
-                <div class="stop-line north"></div>
-                <div class="stop-line east"></div>
-                <div class="stop-line south"></div>
-                <div class="stop-line west"></div>
-                
-                <!-- Signals -->
-                <div id="signal-0" class="traffic-signal north"></div>
-                <div id="signal-1" class="traffic-signal east"></div>
-                <div id="signal-2" class="traffic-signal south"></div>
-                <div id="signal-3" class="traffic-signal west"></div>
-                
-                <!-- Vehicles Layer -->
-                <div id="vehicle-layer" class="lane-layer"></div>
-            </div>
+                <!-- CENTER SIMULATION AREA -->
+                <div class="simulation-center">
+                    <header>
+                        <h1>Traffic Simulator</h1>
+                        <div class="mode-controls">
+                            <button id="mode-priority" class="mode-btn ${state.simulationMode === 'PRIORITY' ? 'active' : ''}">Priority Queue Mode</button>
+                            <button id="mode-rr" class="mode-btn ${state.simulationMode === 'ROUND_ROBIN' ? 'active' : ''}">Round Robin Mode</button>
+                        </div>
+                    </header>
+                    
+                    <div class="controls">
+                        <button id="btn-start" style="${state.isRunning ? 'background-color:#ff4444;color:white' : ''}">${state.isRunning ? 'STOP SIMULATION' : 'START SIMULATION'}</button>
+                        <div class="status-bar-mini" style="margin-left: 20px; display: inline-flex; gap: 15px; font-size: 0.9rem;">
+                            <div>Served: <span id="vehicles-served">${state.stats.served}</span></div>
+                            <div>Switches: <span id="signal-switches">${state.stats.switches}</span></div>
+                        </div>
+                    </div>
 
-            <!-- Double Hashing Panel -->
-            <button id="btn-toggle-hash" style="margin-top:20px;">Show/Hide Double Hashing Visualization</button>
-            <div id="hashing-panel" class="hashing-panel ${state.showHashing ? 'active' : ''}">
-                <div class="hashing-header">
-                    <h3>Vehicle Lookup Table (Double Hashing)</h3>
-                    <span>Size: ${CONFIG.HASH_TABLE_SIZE}, Prime: ${CONFIG.HASH_PRIME}</span>
-                </div>
-                <table id="hash-table-view">
-                    <thead>
-                        <tr>
-                            <th>Idx</th>
-                            <th>Vehicle ID</th>
-                            <th>Key</th>
-                            <th>H1 (k%${CONFIG.HASH_TABLE_SIZE})</th>
-                            <th>H2 (${CONFIG.HASH_PRIME}-(k%${CONFIG.HASH_PRIME}))</th>
-                            <th>Probe</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-            </div>
-            
-            <div class="tables-container">
-                 <div class="table-section" style="width: 100%;">
-                    <h2>PRIORITY QUEUE</h2>
-                    <table id="priority-queue-table">
-                        <thead>
-                            <tr>
-                                <th>Rank</th>
-                                <th>Lane</th>
-                                <th>Prio</th>
-                                <th>Q</th>
-                                <th>Top</th>
-                            </tr>
-                        </thead>
-                        <tbody></tbody>
-                    </table>
+                    <div id="intersection-container">
+                        <div class="road-vertical"></div>
+                        <div class="road-horizontal"></div>
+                        <div class="intersection-center"></div>
+                        
+                        <!-- Stop Lines -->
+                        <div class="stop-line north"></div>
+                        <div class="stop-line east"></div>
+                        <div class="stop-line south"></div>
+                        <div class="stop-line west"></div>
+                        
+                        <!-- Signals -->
+                        <div id="signal-0" class="traffic-signal north">
+                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
+                        </div>
+                        <div id="signal-1" class="traffic-signal east">
+                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
+                        </div>
+                        <div id="signal-2" class="traffic-signal south">
+                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
+                        </div>
+                        <div id="signal-3" class="traffic-signal west">
+                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
+                        </div>
+                        
+                        <!-- Vehicles Layer -->
+                        <div id="vehicle-layer" class="lane-layer"></div>
+                    </div>
+                    
+                    <div class="legend" style="margin-top:20px">
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ff4444;"></div><span>AMBULANCE</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ff9933;"></div><span>FIRE</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #4444ff;"></div><span>POLICE</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #9933ff;"></div><span>VIP</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ffdd33;"></div><span>BUS</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ddd;"></div><span>NORMAL</span></div>
+                    </div>
+
+                    <!-- Double Hashing Panel -->
+                    <button id="btn-toggle-hash" style="margin-top:20px;">Show/Hide Double Hashing Visualization</button>
+                    <div id="hashing-panel" class="hashing-panel ${state.showHashing ? 'active' : ''}">
+                         <div class="hashing-header">
+                            <h3>Vehicle Lookup Table (Double Hashing)</h3>
+                            <span>Size: ${CONFIG.HASH_TABLE_SIZE}, Prime: ${CONFIG.HASH_PRIME}</span>
+                        </div>
+                        <table id="hash-table-view">
+                            <thead>
+                                <tr>
+                                    <th>Idx</th>
+                                    <th>Vehicle ID</th>
+                                    <th>Key</th>
+                                    <th>H1</th>
+                                    <th>H2</th>
+                                    <th>Probe</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
                 </div>
 
-                <div class="table-section" style="width: 100%; margin-top: 20px;">
-                    <h2>ALGORITHM COMPARISON</h2>
-                    <table id="algo-comparison-table">
-                        <thead>
-                            <tr style="background-color: #333; color: white;">
-                                <th>Metric</th>
-                                <th id="header-rr">Round Robin</th>
-                                <th id="header-pq">Priority Queue</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td>Avg Wait Time</td>
-                                <td id="rr-wait">-</td>
-                                <td id="pq-wait">-</td>
-                            </tr>
-                            <tr>
-                                <td>Throughput (v/m)</td>
-                                <td id="rr-throughput">-</td>
-                                <td id="pq-throughput">-</td>
-                            </tr>
-                            <tr>
-                                <td>Emergency Handling</td>
-                                <td>Delayed</td>
-                                <td>Immediate</td>
-                            </tr>
-                            <tr>
-                                <td>Fairness</td>
-                                <td>High</td>
-                                <td>Conditional</td>
-                            </tr>
-                            <tr>
-                                <td>Starvation Risk</td>
-                                <td>None</td>
-                                <td>Possible</td>
-                            </tr>
-                            <tr>
-                                <td>Time Complexity</td>
-                                <td>O(n)</td>
-                                <td>O(log n)</td>
-                            </tr>
-                        </tbody>
-                    </table>
+                <!-- RIGHT CONTROLS SIDEBAR -->
+                <div class="right-controls">
+                    
+                    <!-- MANUAL INJECTION -->
+                    <div class="manual-control-box">
+                        <h3>Manual Vehicle Control</h3>
+                        <div class="control-group">
+                            <label>Lane</label>
+                            <select id="inject-lane" class="control-input">
+                                <option value="0">North (Down)</option>
+                                <option value="1">East (Left)</option>
+                                <option value="2">South (Up)</option>
+                                <option value="3">West (Right)</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Vehicle Type</label>
+                            <select id="inject-type" class="control-input">
+                                <option value="NORMAL">Car (Normal)</option>
+                                <option value="AMBULANCE">Ambulance 🚑</option>
+                                <option value="FIRE">Fire Truck 🚒</option>
+                                <option value="POLICE">Police 🚓</option>
+                                <option value="BUS">Bus 🚌</option>
+                                <option value="VIP">VIP 🌟</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Turn Direction</label>
+                            <select id="inject-dir" class="control-input">
+                                <option value="STRAIGHT">Go Straight ⬆️</option>
+                                <option value="LEFT">Turn Left ⬅️</option>
+                                <option value="RIGHT">Turn Right ➡️</option>
+                            </select>
+                        </div>
+                        <button id="btn-inject" class="btn-add-vehicle">
+                            ➕ Add Vehicle
+                        </button>
+                    </div>
+
+                    <!-- COMPARISON TABLES -->
+                    <div class="table-section">
+                        <h2>PRIORITY QUEUE STATUS</h2>
+                        <table id="priority-queue-table">
+                            <thead>
+                                <tr>
+                                    <th>Rk</th>
+                                    <th>Lane</th>
+                                    <th>Prio</th>
+                                    <th>Q</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+
+                    <div class="table-section">
+                        <h2>ALGORITHM METRICS</h2>
+                        <table id="algo-comparison-table">
+                            <thead>
+                                <tr style="background-color: #333; color: white;">
+                                    <th>Metric</th>
+                                    <th id="header-rr">RR</th>
+                                    <th id="header-pq">PQ</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td>Wait</td>
+                                    <td id="rr-wait">-</td>
+                                    <td id="pq-wait">-</td>
+                                </tr>
+                                <tr>
+                                    <td>Thrup</td>
+                                    <td id="rr-throughput">-</td>
+                                    <td id="pq-throughput">-</td>
+                                </tr>
+                                <tr>
+                                    <td>Emerg</td>
+                                    <td>Slow</td>
+                                    <td>Fast</td>
+                                </tr>
+                                <tr>
+                                    <td>Fair</td>
+                                    <td>High</td>
+                                    <td>Cond</td>
+                                </tr>
+                                <tr>
+                                    <td>Starve</td>
+                                    <td>No</td>
+                                    <td>Yes</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-            </div>
-            
-            <div class="legend" style="margin-top:20px">
-                <div class="legend-item"><div class="legend-color" style="background-color: #ff4444;"></div><span>AMBULANCE</span></div>
-                <div class="legend-item"><div class="legend-color" style="background-color: #ff9933;"></div><span>FIRE</span></div>
-                <div class="legend-item"><div class="legend-color" style="background-color: #4444ff;"></div><span>POLICE</span></div>
-                <div class="legend-item"><div class="legend-color" style="background-color: #9933ff;"></div><span>VIP</span></div>
-                <div class="legend-item"><div class="legend-color" style="background-color: #ffdd33;"></div><span>BUS</span></div>
-                <div class="legend-item"><div class="legend-color" style="background-color: #ddd;"></div><span>NORMAL</span></div>
+
             </div>
         `;
 
@@ -842,7 +919,7 @@ function render() {
                 el = document.createElement('div');
                 el.id = v.id;
                 el.className = `vehicle ${v.type}`;
-                el.textContent = v.id;
+                // el.textContent = v.id; // Removed for visuals
                 el.dataset.type = v.type;
                 layer.appendChild(el);
             }
