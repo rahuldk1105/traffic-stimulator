@@ -71,10 +71,193 @@ const state = {
 };
 
 // ==================== INITIALIZATION ====================
+// ==================== INITIALIZATION ====================
 document.addEventListener('DOMContentLoaded', () => {
-    initControls();
-    requestAnimationFrame(gameLoop);
+    initApp();      // Inject HTML structure first
+    initControls(); // Attach listeners
+    // Start loop in paused state to render initial static scene
+    state.isRunning = true; // Temporary enable for one frame? 
+    // No, gameLoop guard stops it.
+    // Manually call render once.
+    render();
+    // Do NOT start loop automatically
 });
+
+function initApp() {
+    // 1. Inject HTML Structure if not present
+    const main = document.querySelector('.main-content') || document.body;
+    // Check if we already have the structure (index.html might have it?)
+    // If not, inject.
+    if (!document.getElementById('intersection-container')) {
+        main.innerHTML = `
+            <div class="simulation-wrapper">
+                
+                <!-- CENTER SIMULATION AREA -->
+                <div class="simulation-center">
+                    <header>
+                        <h1>Traffic Simulator</h1>
+                        <div class="mode-controls">
+                            <button id="mode-priority" class="mode-btn ${state.simulationMode === 'PRIORITY' ? 'active' : ''}">Priority Queue Mode</button>
+                            <button id="mode-rr" class="mode-btn ${state.simulationMode === 'ROUND_ROBIN' ? 'active' : ''}">Round Robin Mode</button>
+                        </div>
+                    </header>
+                    
+                    <div class="controls">
+                        <button id="btn-start">START SIMULATION</button>
+                        <div class="status-bar-mini" style="margin-left: 20px; display: inline-flex; gap: 15px; font-size: 0.9rem;">
+                            <div>Served: <span id="vehicles-served">0</span></div>
+                            <div>Switches: <span id="signal-switches">0</span></div>
+                        </div>
+                    </div>
+
+                    <div id="intersection-container">
+                        <div class="road-vertical"></div>
+                        <div class="road-horizontal"></div>
+                        <div class="intersection-center"></div>
+                        
+                        <!-- Stop Lines -->
+                        <div class="stop-line north"></div>
+                        <div class="stop-line east"></div>
+                        <div class="stop-line south"></div>
+                        <div class="stop-line west"></div>
+                        
+                        <!-- Signals -->
+                        <div id="signal-0" class="traffic-signal north">
+                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
+                        </div>
+                        <div id="signal-1" class="traffic-signal east">
+                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
+                        </div>
+                        <div id="signal-2" class="traffic-signal south">
+                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
+                        </div>
+                        <div id="signal-3" class="traffic-signal west">
+                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
+                        </div>
+                        
+                        <!-- Vehicles Layer -->
+                        <div id="vehicle-layer" class="lane-layer"></div>
+                    </div>
+                    
+                    <div class="legend" style="margin-top:20px">
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ff4444;"></div><span>AMBULANCE</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ff9933;"></div><span>FIRE</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #4444ff;"></div><span>POLICE</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #9933ff;"></div><span>VIP</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ffdd33;"></div><span>BUS</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ddd;"></div><span>NORMAL</span></div>
+                    </div>
+
+                    <!-- Double Hashing Panel -->
+                    <button id="btn-toggle-hash" style="margin-top:20px;">Show/Hide Double Hashing Visualization</button>
+                    <div id="hashing-panel" class="hashing-panel ${state.showHashing ? 'active' : ''}">
+                         <div class="hashing-header">
+                            <h3>Vehicle Lookup Table (Double Hashing)</h3>
+                            <span>Size: ${CONFIG.HASH_TABLE_SIZE}, Prime: ${CONFIG.HASH_PRIME}</span>
+                        </div>
+                        <table id="hash-table-view">
+                            <thead>
+                                <tr>
+                                    <th>Idx</th>
+                                    <th>Vehicle ID</th>
+                                    <th>Key</th>
+                                    <th>H1</th>
+                                    <th>H2</th>
+                                    <th>Probe</th>
+                                </tr>
+                            </thead>
+                            <tbody></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- RIGHT CONTROLS SIDEBAR -->
+                <div class="right-controls">
+                    
+                    <!-- MANUAL INJECTION -->
+                    <div class="manual-control-box">
+                        <h3>Manual Vehicle Control</h3>
+                        <div class="control-group">
+                            <label>Lane</label>
+                            <select id="inject-lane" class="control-input">
+                                <option value="0">North (Down)</option>
+                                <option value="1">East (Left)</option>
+                                <option value="2">South (Up)</option>
+                                <option value="3">West (Right)</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Vehicle Type</label>
+                            <select id="inject-type" class="control-input">
+                                <option value="NORMAL">Car (Normal)</option>
+                                <option value="AMBULANCE">Ambulance 🚑</option>
+                                <option value="FIRE">Fire Truck 🚒</option>
+                                <option value="POLICE">Police 🚓</option>
+                                <option value="BUS">Bus 🚌</option>
+                                <option value="VIP">VIP 🌟</option>
+                            </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Turn Direction</label>
+                            <select id="inject-dir" class="control-input">
+                                <option value="STRAIGHT">Go Straight ⬆️</option>
+                                <option value="LEFT">Turn Left ⬅️</option>
+                                <option value="RIGHT">Turn Right ➡️</option>
+                            </select>
+                        </div>
+                        <button id="btn-inject" class="btn-add-vehicle">
+                            ➕ Add Vehicle
+                        </button>
+                    </div>
+
+                    <!-- COMPARISON TABLES -->
+                    <div class="tables-container">
+                        <div class="table-section">
+                            <h2>PRIORITY QUEUE STATUS</h2>
+                            <table id="priority-queue-table">
+                                <thead>
+                                    <tr>
+                                        <th>Rk</th>
+                                        <th>Lane</th>
+                                        <th>Prio</th>
+                                        <th>Q</th>
+                                    </tr>
+                                </thead>
+                                <tbody></tbody>
+                            </table>
+                        </div>
+
+                        <div class="table-section">
+                            <h2>ALGORITHM METRICS</h2>
+                            <table id="algo-comparison-table">
+                                <thead>
+                                    <tr style="background-color: #333; color: white;">
+                                        <th>Metric</th>
+                                        <th id="header-rr">RR</th>
+                                        <th id="header-pq">PQ</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>Wait</td>
+                                        <td id="rr-wait">-</td>
+                                        <td id="pq-wait">-</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Thrup</td>
+                                        <td id="rr-throughput">-</td>
+                                        <td id="pq-throughput">-</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        `;
+    }
+}
 
 function initControls() {
     // Mode Switching
@@ -266,36 +449,32 @@ function spawnVehicle(type) {
 }
 
 function startSimulation() {
+    // GUARD: Prevent multiple loops
+    if (state.isRunning) return;
+
     state.isRunning = true;
     state.lastTime = performance.now();
+
+    // Reset Timer & State
     state.signalTimer = CONFIG.SIGNAL_DURATION;
     state.currentGreenLane = -1;
     state.vehiclesToPass = 0;
     state.waitingForDecision = false;
 
-    // Limits
+    // Reset Limits & Counters
     state.activeVehicleCount = 0;
-    state.totalProcessedForStop = 0; // Tracks exit count for auto-stop? Actually stats.served tracks exits.
-    // "Automatically stop after 20 vehicles". Does this mean 20 PROCESSED or 20 CREATED?
-    // "Maintain global counter: Increment when created... Decrement when exited"
-    // "Prevent creation when totalVehicles >= MAX" -> This implies count of EXISTING or TOTAL SPAWNED?
-    // "Automatically stop after 20 vehicles processed" -> Suggests we stop after 20 have EXITED.
-    // BUT "Prevent creation when totalVehicles >= MAX" suggests a CAP on current count.
-    // Re-reading: "When totalVehicles drops to 0... Automatically stop... (20 vehicles processed)" implies we wait until all are gone.
-    // So logic: Cap creation at Total Spawns = 20. Then wait for all to exit.
-
-    state.totalSpawned = 0; // New tracker for lifetime count
-    state.activeVehicleCount = 0;
-
-    // Reset stats
+    state.totalSpawned = 0;
+    state.totalProcessedForStop = 0;
     state.stats.served = 0;
     state.stats.switches = 0;
 
     // Clear Lanes
     state.lanes.forEach(l => l.vehicles = []);
 
+    // Generate Initial Traffic
     generateInitialTraffic();
 
+    // UI Updates
     const btn = document.getElementById('btn-start');
     if (btn) {
         btn.textContent = 'STOP SIMULATION';
@@ -303,11 +482,13 @@ function startSimulation() {
         btn.style.color = 'white';
     }
 
+    console.log('[SIMULATION] Started');
     requestAnimationFrame(gameLoop);
 }
 
 function stopSimulation() {
-    state.isRunning = false;
+    state.isRunning = false; // This kills the loop next frame
+
     const btn = document.getElementById('btn-start');
     if (btn) {
         btn.textContent = 'START SIMULATION';
@@ -412,18 +593,23 @@ function addVehicle(laneId, type, direction = 'STRAIGHT') {
     state.activeVehicleCount++;
     state.totalSpawned++;
     console.log(`[FRONTEND] Vehicle Added. Active: ${state.activeVehicleCount}, Total: ${state.totalSpawned}/${CONFIG.MAX_VEHICLES_LIMIT}`);
+
+    // If paused, render once to show new vehicle
+    if (!state.isRunning) {
+        requestAnimationFrame(render);
+    }
 }
 
 // ==================== GAME LOOP ====================
 function gameLoop(timestamp) {
+    if (!state.isRunning) return;
+
     if (!state.lastTime) state.lastTime = timestamp;
     const dt = timestamp - state.lastTime;
     state.lastTime = timestamp;
 
-    if (state.isRunning) {
-        update(dt, timestamp);
-        render();
-    }
+    update(dt, timestamp);
+    render();
 
     requestAnimationFrame(gameLoop);
 }
@@ -683,6 +869,7 @@ async function makeDecision() {
 }
 
 // ==================== RENDERING ====================
+
 function render() {
     // Stats update
     const servedEl = document.getElementById('vehicles-served');
@@ -693,208 +880,7 @@ function render() {
 
     // We build the visual state inside #intersection-container
     let container = document.getElementById('intersection-container');
-
-    // If container doesn't exist (first run after DOM switch), create it
-    if (!container) {
-        const main = document.querySelector('.main-content');
-        if (!main) return; // Wait for DOM
-
-        main.innerHTML = `
-            <div class="simulation-wrapper">
-                
-                <!-- CENTER SIMULATION AREA -->
-                <div class="simulation-center">
-                    <header>
-                        <h1>Traffic Simulator</h1>
-                        <div class="mode-controls">
-                            <button id="mode-priority" class="mode-btn ${state.simulationMode === 'PRIORITY' ? 'active' : ''}">Priority Queue Mode</button>
-                            <button id="mode-rr" class="mode-btn ${state.simulationMode === 'ROUND_ROBIN' ? 'active' : ''}">Round Robin Mode</button>
-                        </div>
-                    </header>
-                    
-                    <div class="controls">
-                        <button id="btn-start" style="${state.isRunning ? 'background-color:#ff4444;color:white' : ''}">${state.isRunning ? 'STOP SIMULATION' : 'START SIMULATION'}</button>
-                        <div class="status-bar-mini" style="margin-left: 20px; display: inline-flex; gap: 15px; font-size: 0.9rem;">
-                            <div>Served: <span id="vehicles-served">${state.stats.served}</span></div>
-                            <div>Switches: <span id="signal-switches">${state.stats.switches}</span></div>
-                        </div>
-                    </div>
-
-                    <div id="intersection-container">
-                        <div class="road-vertical"></div>
-                        <div class="road-horizontal"></div>
-                        <div class="intersection-center"></div>
-                        
-                        <!-- Stop Lines -->
-                        <div class="stop-line north"></div>
-                        <div class="stop-line east"></div>
-                        <div class="stop-line south"></div>
-                        <div class="stop-line west"></div>
-                        
-                        <!-- Signals -->
-                        <div id="signal-0" class="traffic-signal north">
-                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
-                        </div>
-                        <div id="signal-1" class="traffic-signal east">
-                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
-                        </div>
-                        <div id="signal-2" class="traffic-signal south">
-                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
-                        </div>
-                        <div id="signal-3" class="traffic-signal west">
-                            <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
-                        </div>
-                        
-                        <!-- Vehicles Layer -->
-                        <div id="vehicle-layer" class="lane-layer"></div>
-                    </div>
-                    
-                    <div class="legend" style="margin-top:20px">
-                        <div class="legend-item"><div class="legend-color" style="background-color: #ff4444;"></div><span>AMBULANCE</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background-color: #ff9933;"></div><span>FIRE</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background-color: #4444ff;"></div><span>POLICE</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background-color: #9933ff;"></div><span>VIP</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background-color: #ffdd33;"></div><span>BUS</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background-color: #ddd;"></div><span>NORMAL</span></div>
-                    </div>
-
-                    <!-- Double Hashing Panel -->
-                    <button id="btn-toggle-hash" style="margin-top:20px;">Show/Hide Double Hashing Visualization</button>
-                    <div id="hashing-panel" class="hashing-panel ${state.showHashing ? 'active' : ''}">
-                         <div class="hashing-header">
-                            <h3>Vehicle Lookup Table (Double Hashing)</h3>
-                            <span>Size: ${CONFIG.HASH_TABLE_SIZE}, Prime: ${CONFIG.HASH_PRIME}</span>
-                        </div>
-                        <table id="hash-table-view">
-                            <thead>
-                                <tr>
-                                    <th>Idx</th>
-                                    <th>Vehicle ID</th>
-                                    <th>Key</th>
-                                    <th>H1</th>
-                                    <th>H2</th>
-                                    <th>Probe</th>
-                                </tr>
-                            </thead>
-                            <tbody></tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- RIGHT CONTROLS SIDEBAR -->
-                <div class="right-controls">
-                    
-                    <!-- MANUAL INJECTION -->
-                    <div class="manual-control-box">
-                        <h3>Manual Vehicle Control</h3>
-                        <div class="control-group">
-                            <label>Lane</label>
-                            <select id="inject-lane" class="control-input">
-                                <option value="0">North (Down)</option>
-                                <option value="1">East (Left)</option>
-                                <option value="2">South (Up)</option>
-                                <option value="3">West (Right)</option>
-                            </select>
-                        </div>
-                        <div class="control-group">
-                            <label>Vehicle Type</label>
-                            <select id="inject-type" class="control-input">
-                                <option value="NORMAL">Car (Normal)</option>
-                                <option value="AMBULANCE">Ambulance 🚑</option>
-                                <option value="FIRE">Fire Truck 🚒</option>
-                                <option value="POLICE">Police 🚓</option>
-                                <option value="BUS">Bus 🚌</option>
-                                <option value="VIP">VIP 🌟</option>
-                            </select>
-                        </div>
-                        <div class="control-group">
-                            <label>Turn Direction</label>
-                            <select id="inject-dir" class="control-input">
-                                <option value="STRAIGHT">Go Straight ⬆️</option>
-                                <option value="LEFT">Turn Left ⬅️</option>
-                                <option value="RIGHT">Turn Right ➡️</option>
-                            </select>
-                        </div>
-                        <button id="btn-inject" class="btn-add-vehicle">
-                            ➕ Add Vehicle
-                        </button>
-                    </div>
-
-                    <!-- COMPARISON TABLES -->
-                    <div class="table-section">
-                        <h2>PRIORITY QUEUE STATUS</h2>
-                        <table id="priority-queue-table">
-                            <thead>
-                                <tr>
-                                    <th>Rk</th>
-                                    <th>Lane</th>
-                                    <th>Prio</th>
-                                    <th>Q</th>
-                                </tr>
-                            </thead>
-                            <tbody></tbody>
-                        </table>
-                    </div>
-
-                    <div class="table-section">
-                        <h2>ALGORITHM METRICS</h2>
-                        <table id="algo-comparison-table">
-                            <thead>
-                                <tr style="background-color: #333; color: white;">
-                                    <th>Metric</th>
-                                    <th id="header-rr">RR</th>
-                                    <th id="header-pq">PQ</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td>Wait</td>
-                                    <td id="rr-wait">-</td>
-                                    <td id="pq-wait">-</td>
-                                </tr>
-                                <tr>
-                                    <td>Thrup</td>
-                                    <td id="rr-throughput">-</td>
-                                    <td id="pq-throughput">-</td>
-                                </tr>
-                                <tr>
-                                    <td>Emerg</td>
-                                    <td>Slow</td>
-                                    <td>Fast</td>
-                                </tr>
-                                <tr>
-                                    <td>Fair</td>
-                                    <td>High</td>
-                                    <td>Cond</td>
-                                </tr>
-                                <tr>
-                                    <td>Starve</td>
-                                    <td>No</td>
-                                    <td>Yes</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-            </div>
-        `;
-
-        // Re-bind controls since we wiped them
-        initControls(); // Caution: stack overflow if not careful? 
-        // Better: Don't wipe controls. Just inject intersection-container if missing.
-        // BUT strict instruction was to "Transform visual layout".
-        // To be safe, I will re-bind click events manually here or assume initControls is robust.
-        // Let's assume the previous HTML structure is GONE or replaced.
-        // Actually, replacing innerHTML destroys listeners.
-        // FIX: Only update dynamic parts. The HTML replaced above is static structure.
-        // I should have put this in index.html. 
-        // Requirement said "Return only updated frontend rendering code". 
-        // I will stick to updating the Vehicle Layer and Signals.
-
-        // Re-fetch container after injection
-        container = document.getElementById('intersection-container');
-    }
+    if (!container) return;
 
     // 1. Update Signals
     for (let i = 0; i < 4; i++) {

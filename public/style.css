@@ -7,7 +7,23 @@
 /* Layout & Sidebar */
 body {
     margin: 0;
-    overflow: hidden; /* Prevent body scroll, container handles it */
+    overflow: hidden; /* Prevent body scroll, app-container handles it */
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+}
+
+/* Ensure no overlay blocks clicks */
+#intersection-container {
+    /* pointer-events: none;  <-- If we disable this, we can't click things inside if we add them later? 
+       Actually vehicles are inside. We shouldn't disable pointer events on container if we want interaction.
+       But we don't have interaction there yet.
+       Safe to leave auto or defaults.
+    */
+    touch-action: none; /* Prevent scroll on touch */
+}
+
+/* Make sure Controls are clickable */
+.right-controls, .sidebar, .main-content {
+    pointer-events: auto;
 }
 
 .app-container {
@@ -144,10 +160,7 @@ button:hover {
     color: white;
 }
 
-/* Injection Panel */
-    display: flex;
-    flex-direction: column;
-}
+
 
 /* Layout Wrappers */
 .simulation-wrapper {
