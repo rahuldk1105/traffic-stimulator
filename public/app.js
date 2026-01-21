@@ -265,8 +265,15 @@ function initApp() {
                                         <td id="pq-throughput">-</td>
                                     </tr>
                                 </tbody>
-                                </tbody>
                             </table>
+                        </div>
+
+                        <!-- LIVE CHART -->
+                        <div class="table-section" style="margin-top: 20px;">
+                            <h2>LIVE ANALYTICS (Wait Time)</h2>
+                            <div style="background: rgba(0,0,0,0.5); padding: 10px; border-radius: 8px;">
+                                <canvas id="analyticsChart" width="300" height="200"></canvas>
+                            </div>
                         </div>
 
                         <!-- Static Priority Reference Table -->
@@ -356,6 +363,8 @@ function initControls() {
     // Hash Demo Button
     const btnHashDemo = document.getElementById('btn-hash-demo');
     if (btnHashDemo) btnHashDemo.onclick = runHashCollisionDemo;
+
+    initializeAnalyticsChart();
 }
 
 // ... existing code ...
@@ -667,11 +676,20 @@ function startSimulation() {
     }
 
     console.log('[SIMULATION] Started');
+
+    if (state.chartInterval) clearInterval(state.chartInterval);
+    state.chartInterval = setInterval(updateAnalyticsChart, 1000);
+
     requestAnimationFrame(gameLoop);
 }
 
 function stopSimulation() {
     state.isRunning = false; // This kills the loop next frame
+
+    if (state.chartInterval) {
+        clearInterval(state.chartInterval);
+        state.chartInterval = null;
+    }
 
     const btn = document.getElementById('btn-start');
     if (btn) {
@@ -1223,14 +1241,16 @@ function updatePriorityViz(heap) {
             if (sc.is_rush_hour) reasons.push("🕒 Rush Hour");
             if (sc.is_heavy_weather) reasons.push("🌧️ Weather");
 
-            // Vehicle Constraints (Check queue)
+            // Vehicle Type Boosts (Always Active)
             const laneObj = state.lanes[lId];
             if (laneObj) {
-                const hasBus = laneObj.vehicles.some(v => v.state === 'queued' && v.type === 'BUS');
-                const hasVip = laneObj.vehicles.some(v => v.state === 'queued' && v.type === 'VIP');
+                const queued = laneObj.vehicles.filter(v => v.state === 'queued');
+                if (queued.some(v => v.type === 'AMBULANCE')) reasons.push("🚑 Emergency");
+                if (queued.some(v => v.type === 'FIRE')) reasons.push("🚒 Emergency");
+                if (queued.some(v => v.type === 'POLICE')) reasons.push("🚓 Emergency");
+                if (queued.some(v => v.type === 'VIP')) reasons.push("🌟 VIP");
 
-                if (sc.is_school_zone && hasBus) reasons.push("🚌 Bus Boost");
-                if (sc.is_vip && hasVip) reasons.push("🌟 VIP Convoy");
+                if (sc.is_school_zone && queued.some(v => v.type === 'BUS')) reasons.push("🚌 Bus Boost");
             }
             boostText = [...new Set(reasons)].join(', ');
         }
@@ -1244,4 +1264,63 @@ function updatePriorityViz(heap) {
         `;
         tbody.appendChild(row);
     });
+}
+
+// ==================== ANALYTICS CHART ====================
+let analyticsChart = null;
+
+function initializeAnalyticsChart() {
+    const ctx = document.getElementById('analyticsChart');
+    if (!ctx) return;
+
+    if (typeof Chart === 'undefined') return;
+
+    if (analyticsChart) analyticsChart.destroy();
+
+    analyticsChart = new Chart(ctx.getContext('2d'), {
+        type: 'line',
+        data: {
+            labels: [],
+            datasets: [{
+                label: 'Global Queue',
+                data: [],
+                borderColor: '#00e676',
+                borderWidth: 2,
+                tension: 0.3,
+                pointRadius: 0,
+                fill: true,
+                backgroundColor: 'rgba(0, 230, 118, 0.1)'
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 0 },
+            scales: {
+                x: { display: false },
+                y: {
+                    beginAtZero: true,
+                    suggestedMax: 20,
+                    grid: { color: '#333' }
+                }
+            },
+            plugins: { legend: { display: false } }
+        }
+    });
+}
+
+function updateAnalyticsChart() {
+    if (!analyticsChart) return;
+
+    // Calculate metric: Total Queue Length
+    const totalQ = state.lanes.reduce((acc, l) => acc + l.vehicles.filter(v => v.state === 'queued').length, 0);
+
+    analyticsChart.data.labels.push('');
+    analyticsChart.data.datasets[0].data.push(totalQ);
+
+    if (analyticsChart.data.labels.length > 50) {
+        analyticsChart.data.labels.shift();
+        analyticsChart.data.datasets[0].data.shift();
+    }
+    analyticsChart.update();
 }

@@ -46,10 +46,20 @@ function calculateLanePriority(lane, scenario, currentTime) {
         let vPriority = BASE_WEIGHT + waitTime;
 
         // Vehicle Type Priorities
-        if (v.type === 'AMBULANCE') vPriority += PRIORITY_AMBULANCE;
-        else if (v.type === 'FIRE') vPriority += PRIORITY_FIRE;
-        else if (v.type === 'POLICE') vPriority += PRIORITY_POLICE;
-        else if (v.type === 'VIP') vPriority += PRIORITY_VIP;
+        // Vehicle Type Priorities
+        if (v.type === 'AMBULANCE') {
+            vPriority += PRIORITY_AMBULANCE;
+            boostReasons.add("🚑 Emergency");
+        } else if (v.type === 'FIRE') {
+            vPriority += PRIORITY_FIRE;
+            boostReasons.add("🚒 Emergency");
+        } else if (v.type === 'POLICE') {
+            vPriority += PRIORITY_POLICE;
+            boostReasons.add("🚓 Emergency");
+        } else if (v.type === 'VIP') {
+            vPriority += PRIORITY_VIP;
+            boostReasons.add("🌟 VIP");
+        }
 
         // --- SCENARIO VEHICLE BOOSTS ---
         if (scenario.is_school_zone && v.type === 'BUS') {
