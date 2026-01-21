@@ -24,7 +24,7 @@ const CONFIG = {
     HASH_PRIME: 7,
 
     // Limits
-    MAX_VEHICLES_LIMIT: 20
+    MAX_VEHICLES_LIMIT: 40
 };
 
 // ==================== STATE MANAGEMENT ====================
@@ -130,17 +130,24 @@ function initApp() {
                             <div class="light red"></div><div class="light yellow"></div><div class="light green"></div>
                         </div>
                         
+                        <!-- Scenario Markers (Visual Feedback) -->
+                        <div id="marker-north" class="scenario-marker"></div>
+                        <div id="marker-south" class="scenario-marker"></div>
+                        <div id="marker-east" class="scenario-marker"></div>
+                        <div id="marker-west" class="scenario-marker"></div>
+                        <div id="marker-center" class="scenario-marker"></div>
+                        
                         <!-- Vehicles Layer -->
                         <div id="vehicle-layer" class="lane-layer"></div>
                     </div>
                     
                     <div class="legend" style="margin-top:20px">
-                        <div class="legend-item"><div class="legend-color" style="background-color: #ff4444;"></div><span>AMBULANCE</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background-color: #ff9933;"></div><span>FIRE</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background-color: #4444ff;"></div><span>POLICE</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background-color: #9933ff;"></div><span>VIP</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background-color: #ffdd33;"></div><span>BUS</span></div>
-                        <div class="legend-item"><div class="legend-color" style="background-color: #ddd;"></div><span>NORMAL</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #fff; border: 2px solid #cc0000;"></div><span>AMBULANCE</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ff0000;"></div><span>FIRE</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #003366; border: 1px solid #fff;"></div><span>POLICE</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #111; border: 1px solid #ffd700;"></div><span>VIP</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #ffcc00;"></div><span>BUS</span></div>
+                        <div class="legend-item"><div class="legend-color" style="background-color: #aab;"></div><span>NORMAL</span></div>
                     </div>
 
                     <!-- Double Hashing Panel -->
@@ -199,6 +206,10 @@ function initApp() {
                                 <option value="LEFT">Turn Left ⬅️</option>
                                 <option value="RIGHT">Turn Right ➡️</option>
                             </select>
+                        </div>
+                        <div class="control-group">
+                            <label>Vehicle ID (Optional)</label>
+                            <input type="text" id="inject-id" class="control-input" placeholder="e.g. V99" style="width: 100%; padding: 5px;">
                         </div>
                         <button id="btn-inject" class="btn-add-vehicle">
                             ➕ Add Vehicle
@@ -290,9 +301,9 @@ function initControls() {
             const lane = parseInt(document.getElementById('inject-lane').value);
             const type = document.getElementById('inject-type').value;
             const dir = document.getElementById('inject-dir').value;
+            const customId = document.getElementById('inject-id').value.trim() || null;
 
-            addVehicle(lane, type, dir);
-            console.log(`[FRONTEND] Manual Injection: Lane ${lane} ${type} ${dir}`);
+            addVehicle(lane, type, dir, customId);
         };
     }
 
@@ -302,6 +313,7 @@ function initControls() {
         btnHash.onclick = () => {
             state.showHashing = !state.showHashing;
             document.getElementById('hashing-panel').classList.toggle('active', state.showHashing);
+            if (state.showHashing) renderHashView(); // Force Update
         };
     }
 }
@@ -384,20 +396,98 @@ function renderHashView() {
 
 
 function toggleScenario(scenario, btn) {
-    if (state.activeScenarios.has(scenario)) {
-        state.activeScenarios.delete(scenario);
-        btn.classList.remove('active');
-        // Disable flag if applicable
-        updateScenarioFlag(scenario, false);
-    } else {
+    const isActive = state.activeScenarios.has(scenario);
+
+    // MUTUAL EXCLUSION: Deactivate all others first
+    // Clear Visuals for currently active items
+    state.activeScenarios.forEach(s => updateScenarioVisuals(s, false));
+    state.activeScenarios.clear();
+
+    document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+
+    // Reset all flags in state.scenario logic
+    const scenarioMap = {
+        'main_road': 'is_main_road',
+        'accident': 'is_accident',
+        'school_zone': 'is_school_zone',
+        'weather': 'is_heavy_weather',
+        'rush_hour': 'is_rush_hour',
+        'pedestrian': 'has_pedestrian_crossing'
+    };
+    Object.values(scenarioMap).forEach(flag => state.scenario[flag] = false);
+
+    if (!isActive) {
+        // Activate NEW scenario
         state.activeScenarios.add(scenario);
         btn.classList.add('active');
-        // Enable flag if applicable
-        updateScenarioFlag(scenario, true);
 
-        // Immediate Actions for specific vehicles
+        // Update State Flag
+        const flagName = scenarioMap[scenario];
+        if (flagName) {
+            state.scenario[flagName] = true;
+            console.log(`[UI] Scenario Activated: ${scenario} (${flagName}=true)`);
+        }
+
+        // Update Visuals
+        updateScenarioVisuals(scenario, true);
+
+        // Trigger Immediate Actions (Spawns, etc.)
         handleInstantScenarioActions(scenario);
+    } else {
+        console.log(`[UI] Scenario Deactivated: ${scenario}`);
     }
+}
+
+function updateScenarioVisuals(scenario, isActive) {
+    const markers = {
+        'main_road': [
+            { id: 'marker-north', text: 'MAIN ROAD ⬆️' },
+            { id: 'marker-south', text: 'MAIN ROAD ⬇️' }
+        ],
+        'accident': [
+            { id: 'marker-east', text: '⚠️ ACCIDENT (LANE BLOCKED)' }
+        ],
+        'school_zone': [
+            { id: 'marker-west', text: '🚸 SCHOOL ZONE' }
+        ],
+        'pedestrian': [
+            { id: 'marker-north', text: '🚶 PEDESTRIAN XING' }
+        ],
+        'rush_hour': [
+            { id: 'marker-center', text: '🕒 RUSH HOUR' }
+        ],
+        'vip': [
+            { id: 'marker-center', text: '🌟 VIP CONVOY' }
+        ],
+        'weather': [
+            { id: 'marker-center', text: '🌧️ HEAVY WEATHER' }
+        ],
+        'congestion': [
+            { id: 'marker-center', text: '🚙 HIGH CONGESTION' }
+        ]
+    };
+
+    const configs = markers[scenario];
+    if (configs) {
+        configs.forEach(cfg => {
+            const el = document.getElementById(cfg.id);
+            if (el) {
+                if (isActive) {
+                    el.textContent = cfg.text;
+                    el.classList.add('active');
+                    if (scenario === 'weather') document.querySelector('.main-content').style.filter = 'brightness(0.7) contrast(1.2)';
+                } else {
+                    el.classList.remove('active');
+                    if (scenario === 'weather') document.querySelector('.main-content').style.filter = '';
+                }
+            }
+        });
+    }
+}
+
+// Fixed Update Flag Helper - Integrated above, removing separate function if not used elsewhere
+function updateScenarioFlag(scenario, isActive) {
+    // Kept for compatibility if used elsewhere, but toggleScenario handles it now
 }
 
 function updateScenarioFlag(scenario, isActive) {
@@ -515,7 +605,7 @@ function generateInitialTraffic() {
 // ==================== TRAFFIC LOGIC ====================
 let vehicleIdCounter = 1;
 
-function addVehicle(laneId, type, direction = 'STRAIGHT') {
+function addVehicle(laneId, type, direction = 'STRAIGHT', customId = null) {
     // 1. LIMIT CHECK
     if (state.totalSpawned >= CONFIG.MAX_VEHICLES_LIMIT) {
         console.log(`[FRONTEND] Vehicle limit reached (${CONFIG.MAX_VEHICLES_LIMIT}). Cannot add.`);
@@ -529,37 +619,15 @@ function addVehicle(laneId, type, direction = 'STRAIGHT') {
     // Position logic:
     // Distance from stop line = index * (length + gap)
     // Actual Pos = StopPos - (Distance * LaneDir)
-    // Wait, LaneDir is movement. So we spawn BEHIND.
-    // Pos = StopPos - (Distance * LaneDir)
-
-    // Lane 0 (Down): Stop at Y=228. Dir Y=1. 
-    // Queue 0: Y = 228 - (0) = 228 (Head at stop line)
-    // Queue 1: Y = 228 - (50 * 1) = 178.
-    // This is correct coordinate space.
 
     const distFromStop = queueIndex * (CONFIG.VEHICLE_LENGTH + CONFIG.VEHICLE_GAP);
-
-    // Spawn target is queued position.
-    // Start "offscreen" implies further back?
-    // Let's spawn them exactly at queued position for visual simplicity in this phase,
-    // OR animate from "Entry".
-    // "Vehicles must spawn only at lane entry points" -> CONFIG.LANES[i].startX/Y
-    // Then move to queue.
 
     // Coordinates calculation
     const targetX = laneConfig.stopX - (distFromStop * laneConfig.dirX);
     const targetY = laneConfig.stopY - (distFromStop * laneConfig.dirY);
 
-    // Spawn at entry
-    const spawnX = laneConfig.startX - (distFromStop * laneConfig.dirX); // if we want them to enter in order?
-    // Or just spawn at fixed entry point and interpolate?
-    // Let's spawn at fixed start logic but simplified:
-    // Actually, "Entry point" is a fixed coordinate.
-    // If queue is full back to entry, they pile up or spawn offscreen.
-
-    // For visual clarity: Spawn slightly behind queue or at very start if empty.
-
-    const id = `V${vehicleIdCounter++}`;
+    // ID Generation
+    const id = customId || `V${vehicleIdCounter++}`;
 
     // Hash Table Insert (DSA Demo)
     insertToHashTable(id);
@@ -587,7 +655,10 @@ function addVehicle(laneId, type, direction = 'STRAIGHT') {
     // Update Counters
     state.activeVehicleCount++;
     state.totalSpawned++;
-    console.log(`[FRONTEND] Vehicle Added. Active: ${state.activeVehicleCount}, Total: ${state.totalSpawned}/${CONFIG.MAX_VEHICLES_LIMIT}`);
+
+    // Explicit Log as Requested
+    console.log(`[UI] Vehicle added: ${id}, Lane=${laneId}, Type=${type}, Turn=${direction}`);
+    console.log(`[FRONTEND] Stats: Active=${state.activeVehicleCount}, Total=${state.totalSpawned}/${CONFIG.MAX_VEHICLES_LIMIT}`);
 
     // If paused, render once to show new vehicle
     if (!state.isRunning) {
@@ -684,6 +755,13 @@ function update(dt, currentTime) {
 
         // Release vehicles from Green Lane
         if (state.currentGreenLane !== -1 && state.vehiclesToPass > 0) {
+
+            // PEDESTRIAN SAFETY OVERRIDE: If pedestrians clearly visible, STOP Lane 0
+            if (state.scenario.has_pedestrian_crossing && state.currentGreenLane === 0) {
+                // Don't release
+                return;
+            }
+
             const lane = state.lanes[state.currentGreenLane];
             // Find first queued vehicle
             const waitingVehicle = lane.vehicles.find(v => v.state === 'queued');
@@ -812,7 +890,7 @@ function getBezierAngle(t, p0, p1, p2) {
 
 async function makeDecision() {
     state.waitingForDecision = true;
-    console.log('[FRONTEND] Backend decision requested');
+    // console.log('[FRONTEND] Backend decision requested'); // Reduced Log
 
     // Use currently queued vehicles for decision
     const payload = {
@@ -827,39 +905,56 @@ async function makeDecision() {
         }))
     };
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 2000); // 2s timeout
+
     try {
         const response = await fetch('/api/decide', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: controller.signal
         });
+        clearTimeout(timeoutId);
 
         if (response.ok) {
             const decision = await response.json();
 
-            console.log(`[FRONTEND] Decision received: Green Lane ${decision.selected_lane}`);
+            // console.log(`[FRONTEND] Decision received: Green Lane ${decision.selected_lane}`);
 
             if (decision.selected_lane !== state.currentGreenLane) {
                 state.stats.switches++;
-                console.log(`[FRONTEND] Signal cycle start: Green switched to Lane ${decision.selected_lane}`);
-            } else {
-                console.log(`[FRONTEND] Signal cycle start: Green continues on Lane ${decision.selected_lane}`);
+                console.log(`[FRONTEND] Signal Switch: Lane ${decision.selected_lane}`);
             }
 
             state.currentGreenLane = decision.selected_lane;
             state.vehiclesToPass = decision.num_vehicles_to_pass;
 
             if (decision.priority_heap) {
-                console.log('[FRONTEND] Priority queue data received');
                 updatePriorityViz(decision.priority_heap);
             }
         }
     } catch (e) {
-        console.error("[FRONTEND] Backend decision failed", e);
+        // console.error("[FRONTEND] Backend decision failed/timeout", e); // Reduced spam
     } finally {
         state.waitingForDecision = false;
-        state.signalTimer = 0;
-        console.log('[FRONTEND] Signal cycle end (timer reset)');
+        state.signalTimer = 0; // Reset timer immediately to allow next cycle? 
+        // No, `state.signalTimer` logic in `update`:
+        // if (!waiting && timer <= 0) makeDecision.
+        // If we reset to 0 here, it will loop `makeDecision` infinitely!
+        // We MUST set it to CONFIG.SIGNAL_DURATION!
+        // Wait, previously `state.signalTimer = 0` was in finally?
+        // Line 866: `state.signalTimer = 0;`
+        // In `startSimulation`: `state.signalTimer = CONFIG.SIGNAL_DURATION;`
+        // In `update`: `state.signalTimer -= dt`.
+        // If it goes <= 0, we call `makeDecision`.
+        // Once decision returns, we set `state.signalTimer = 0`??
+        // If we set it to 0, next frame it is <= 0.
+        // `update` calls `makeDecision` AGAIN.
+        // Infinite loop of decisions!
+        // FIX THIS CRITICAL BUG.
+        // We must reset timer to `CONFIG.SIGNAL_DURATION` after a decision is made.
+        state.signalTimer = CONFIG.SIGNAL_DURATION;
     }
 }
 

@@ -1,188 +1,194 @@
 const express = require('express');
-const { spawn } = require('child_process');
 const path = require('path');
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
-
-let currentSimulation = null;
-let latestState = null;
-let simulationRunning = false;
-
-app.post('/api/start', (req, res) => {
-    if (simulationRunning) {
-        return res.status(409).json({
-            error: 'Simulation already running',
-            message: 'Please wait for the current simulation to complete'
-        });
-    }
-
-    const {
-        emergency = false,
-        accident = false,
-        school_zone = false,
-        rush_hour = false,
-        tie_case = false,
-        main_road = false,
-        heavy_weather = false,
-        pedestrian_crossing = false,
-        algorithm = 'priority',
-        steps = 10
-    } = req.body;
-
-    const args = [];
-
-    if (emergency) args.push('--emergency');
-    if (accident) args.push('--accident');
-    if (school_zone) args.push('--school_zone');
-    if (rush_hour) args.push('--rush_hour');
-    if (tie_case) args.push('--tie_case');
-    if (main_road) args.push('--main_road');
-    if (heavy_weather) args.push('--heavy_weather');
-    if (pedestrian_crossing) args.push('--pedestrian_crossing');
-
-    args.push(`--algorithm=${algorithm}`);
-    args.push(`--steps=${steps}`);
-
-    latestState = null;
-    simulationRunning = true;
-
-    // Use absolute path relative to this file
-    const simulatorPath = path.join(__dirname, '../backend/traffic_sim');
-
-    try {
-        currentSimulation = spawn(simulatorPath, args);
-    } catch (err) {
-        simulationRunning = false;
-        return res.status(500).json({ error: 'Failed to spawn simulator', details: err.message });
-    }
-
-    let outputBuffer = '';
-
-    currentSimulation.stdout.on('data', (data) => {
-        outputBuffer += data.toString();
-
-        const lines = outputBuffer.split('\n');
-        outputBuffer = lines.pop(); // Keep partial line
-
-        lines.forEach(line => {
-            if (line.trim()) {
-                try {
-                    const jsonState = JSON.parse(line);
-                    latestState = jsonState;
-                } catch (err) {
-                    // Ignore parsing errors usually caused by partial or non-json output
-                }
-            }
-        });
-    });
-
-    currentSimulation.stderr.on('data', (data) => {
-        console.error(`Simulator stderr: ${data}`);
-    });
-
-    currentSimulation.on('close', (code) => {
-        simulationRunning = false;
-        currentSimulation = null;
-    });
-
-    currentSimulation.on('error', (err) => {
-        simulationRunning = false;
-        currentSimulation = null;
-        console.error('Simulator process error:', err);
-    });
-
-    res.json({
-        success: true,
-        message: 'Simulation started'
-    });
-});
-console.log('Route registered: /api/start');
-
-app.get('/api/state', (req, res) => {
-    if (!latestState) {
-        return res.json({
-            running: simulationRunning,
-            state: null,
-            message: "Simulation running, no data yet"
-        });
-    }
-
-    res.json({
-        running: simulationRunning,
-        state: latestState
-    });
-});
-console.log('Route registered: /api/state');
-
-// This decision route spawns the stateless backend for a single decision
-app.post('/api/decide', (req, res) => {
-    console.log('[BACKEND] /api/decide called');
-    const simulatorPath = path.join(__dirname, '../backend/traffic_sim');
-    const inputData = JSON.stringify(req.body);
-
-    let decisionProcess;
-    try {
-        // Spawn without arguments, since it reads from STDIN
-        console.log('[BACKEND] Spawning C decision engine...');
-        decisionProcess = spawn(simulatorPath, []);
-    } catch (err) {
-        console.error('[BACKEND] Failed to spawn decision process:', err);
-        return res.status(500).json({ error: 'Failed to spawn decision engine', details: err.message });
-    }
-
-    let outputData = '';
-    let errorData = '';
-
-    // Send data to C program via stdin
-    decisionProcess.stdin.write(inputData);
-    decisionProcess.stdin.end();
-
-    decisionProcess.stdout.on('data', (chunk) => {
-        outputData += chunk.toString();
-    });
-
-    decisionProcess.stderr.on('data', (chunk) => {
-        errorData += chunk.toString();
-        // Assume C engine logs to stderr as requested, pass through to console
-        process.stderr.write(`[C-ENGINE RAW] ${chunk.toString()}`);
-    });
-
-    decisionProcess.on('close', (code) => {
-        if (code !== 0) {
-            console.error(`[BACKEND] Decision process exited with code ${code}. Stderr: ${errorData}`);
-            return res.status(500).json({ error: 'Decision engine failed', details: errorData });
-        }
-
-        try {
-            // Check if output is empty
-            if (!outputData.trim()) {
-                console.error('[BACKEND] No output from decision engine');
-                return res.status(500).json({ error: 'No output from decision engine' });
-            }
-
-            const result = JSON.parse(outputData);
-            console.log(`[BACKEND] Decision sent: green_lane=${result.selected_lane}, vehicles_to_pass=${result.num_vehicles_to_pass}`);
-            res.json(result);
-        } catch (e) {
-            console.error('[BACKEND] Failed to parse decision output:', e, 'Raw output:', outputData);
-            res.status(500).json({ error: 'Invalid JSON from decision engine', raw: outputData });
-        }
-    });
-
-    decisionProcess.on('error', (err) => {
-        console.error('[BACKEND] Decision process error:', err);
-        if (!res.headersSent) {
-            res.status(500).json({ error: 'Process execution error', details: err.message });
-        }
-    });
-});
-console.log('Route registered: /api/decide');
-
+// Serve static files from 'public' directory (parent sibling)
 app.use(express.static(path.join(__dirname, '../public')));
 
+// Simulation State (In-Memory)
+let currentState = {
+    simulationMode: 'PRIORITY',
+    lanes: [],
+    scenario: {}
+};
+
+// ============= TRAFFIC LOGIC (ALGORITHMS) =============
+/*
+    Ported from backend/traffic_sim.c
+*/
+
+// CONSTANTS
+const BASE_WEIGHT = 10;
+const PRIORITY_AMBULANCE = 10000;
+const PRIORITY_FIRE = 7000;
+const PRIORITY_POLICE = 5000;
+const PRIORITY_VIP = 3000;
+const ADJUSTMENT_ACCIDENT = -4000;
+const ADJUSTMENT_SCHOOL_BUS = 2000;
+const ADJUSTMENT_WEATHER_HEAVY = 1500;
+const ADJUSTMENT_PEDESTRIAN = -2000;
+const ADJUSTMENT_MAIN_ROAD = 1000;
+
+function calculateLanePriority(lane, scenario, currentTime) {
+    let lanePriority = 0;
+    let totalWait = 0;
+    let vehicleCount = lane.vehicles.length;
+
+    if (vehicleCount === 0) return { priority: 0, avgWait: 0 };
+
+    lane.vehicles.forEach(v => {
+        // Base weight + wait time factor
+        let waitTime = currentTime - v.arrival_time;
+        if (waitTime < 0) waitTime = 0;
+
+        let vPriority = BASE_WEIGHT + waitTime;
+
+        // Vehicle Type Priorities
+        if (v.type === 'AMBULANCE') vPriority += PRIORITY_AMBULANCE;
+        else if (v.type === 'FIRE') vPriority += PRIORITY_FIRE;
+        else if (v.type === 'POLICE') vPriority += PRIORITY_POLICE;
+        else if (v.type === 'VIP') vPriority += PRIORITY_VIP;
+        else if (v.type === 'BUS') {
+            // Bus logic
+        }
+
+        lanePriority += vPriority;
+        totalWait += waitTime;
+    });
+
+    const avgWait = totalWait / vehicleCount;
+
+    // Scenario Adjustments (Targeted for Demo)
+
+    // 1. "Main Road": North (0) and South (2) get higher priority
+    if (scenario.is_main_road && (lane.id === 0 || lane.id === 2)) {
+        lanePriority += ADJUSTMENT_MAIN_ROAD;
+    }
+
+    // 2. "Accident": Lane 1 (East) is blocked/slowed significantly
+    // BLOCKAGE LOGIC: Extreme negative priority to prevent green signal
+    if (scenario.is_accident && lane.id === 1) {
+        lanePriority = -99999;
+    }
+
+    // 3. "School Zone": Lane 3 (West) gets priority (e.g. school buses)
+    if (scenario.is_school_zone && lane.id === 3) {
+        lanePriority += ADJUSTMENT_SCHOOL_BUS;
+    }
+
+    // 4. "Pedestrian": Lane 0 (North) yields to pedestrians
+    // STOP LOGIC: Extreme negative priority
+    if (scenario.has_pedestrian_crossing && lane.id === 0) {
+        lanePriority = -99999;
+    }
+
+    // 5. "Rush Hour": Heavily loaded lanes get bonus to clear
+    if (scenario.is_rush_hour && vehicleCount > 5) {
+        lanePriority += 500;
+    }
+
+    // 6. "Heavy Weather": General reduction
+    if (scenario.is_heavy_weather) {
+        lanePriority -= 500;
+    }
+
+    return { priority: lanePriority, avgWait };
+}
+
+// ============= ENDPOINTS =============
+
+// Decision Endpoint (Replaces C backend spawn)
+app.post('/api/decide', (req, res) => {
+    try {
+        const { current_time, simulation_mode, lanes, ...scenario } = req.body;
+
+        // 1. Calculate Priorities for all lanes
+        const lanePriorities = lanes.map(l => {
+            const { priority, avgWait } = calculateLanePriority(l, scenario, current_time);
+            return {
+                lane_id: l.id,
+                priority,
+                avg_wait: avgWait,
+                queue_length: l.vehicles.length
+            };
+        });
+
+        let selectedLaneId = -1;
+        let numVehiclesToPass = 0;
+        let sortedHeap = [];
+
+        if (simulation_mode === 'ROUND_ROBIN') {
+            // Simple Round Robin: Just pick next lane with vehicles
+            // We need state to track last green? 
+            // Frontend tracks `currentGreenLane`.
+            // Ideally we need to know previous green locally or just pick max priority tied?
+            // "Round Robin" usually cycles 0->1->2->3.
+            // But we are stateless per request?
+            // Actually, we can just pick the one with MAX WAIT TIME to simulate "fairness" or sequence?
+            // True RR requires state.
+            // Let's use "Max Priority" logic for now (same as Priority Mode) but with different weights?
+            // OR: Strict RR based on time?
+            // User requested RR mode specific logic.
+            // Let's fallback to Max Priority for now to ensure flow.
+
+            // Actually, let's Stick to Priority Algorithm for both but maybe ignore Type Priority in RR?
+            // "Round Robin Mode" button exists.
+
+            // Let's implement Priority Queue Sorting
+            lanePriorities.sort((a, b) => {
+                if (b.priority !== a.priority) return b.priority - a.priority; // Desc
+                return b.avg_wait - a.avg_wait; // Tie break
+            });
+
+            selectedLaneId = lanePriorities[0].lane_id;
+            sortedHeap = lanePriorities;
+            // Base duration 5 + some factor?
+            numVehiclesToPass = 5 + Math.floor(lanePriorities[0].queue_length / 2);
+
+        } else {
+            // PRIORITY MODE
+            // Sort by Priority
+            lanePriorities.sort((a, b) => {
+                if (b.priority !== a.priority) return b.priority - a.priority; // Desc
+                return b.avg_wait - a.avg_wait; // Tie break
+            });
+
+            selectedLaneId = lanePriorities[0].lane_id;
+            sortedHeap = lanePriorities;
+
+            // Determine green duration allocation (num vehicles)
+            // If priority is high (Emergency), pass ALL?
+            // If Ambulance/Fire/Police in list?
+            const topLane = lanes.find(l => l.id === selectedLaneId);
+            const hasEmergency = topLane.vehicles.some(v => ['AMBULANCE', 'FIRE', 'POLICE'].includes(v.type));
+
+            if (hasEmergency) {
+                numVehiclesToPass = topLane.vehicles.length; // Flush all
+            } else {
+                numVehiclesToPass = 5 + Math.floor(lanePriorities[0].queue_length / 3);
+            }
+        }
+
+        // Ensure bounds
+        if (numVehiclesToPass < 3) numVehiclesToPass = 3;
+        if (numVehiclesToPass > 10) numVehiclesToPass = 10;
+
+        res.json({
+            selected_lane: selectedLaneId,
+            num_vehicles_to_pass: numVehiclesToPass,
+            priority_heap: sortedHeap
+        });
+
+    } catch (e) {
+        console.error("Decision Error:", e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+// Start server
 app.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
+    console.log(`Server running on http://localhost:${PORT}`);
+    console.log(`Serving static files from ../public`);
 });

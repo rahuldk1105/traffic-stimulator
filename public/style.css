@@ -594,7 +594,7 @@ button:hover {
 /* Cross on roof */
 /* We can add specialized internal marking via JS or complex CSS, but kept simple */
 
-.vehicle.FIRE { background: #ff4400; }
+.vehicle.FIRE { background: #ff0000; }
 .vehicle.POLICE { background: #003366; border: 1px solid #fff; }
 .vehicle.VIP { background: #111; border: 1px solid #ffd700; } /* Black & Gold */
 
@@ -607,6 +607,47 @@ button:hover {
 
 .vehicle.NORMAL { 
     background: #aab; /* Metallic Blue-Grey */
+}
+
+/* Scenario Visual Markers */
+.scenario-marker {
+    position: absolute;
+    padding: 8px 16px;
+    background: rgba(220, 53, 69, 0.95); /* High viz red */
+    color: white;
+    border-radius: 30px;
+    font-family: 'Segoe UI', sans-serif;
+    font-weight: 800;
+    font-size: 16px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    z-index: 100;
+    pointer-events: none;
+    display: none;
+    text-align: center;
+    border: 3px solid white;
+    box-shadow: 0 10px 20px rgba(0,0,0,0.4);
+    white-space: nowrap;
+}
+.scenario-marker.active { display: block; animation: popIn 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+
+@keyframes popIn {
+    from { transform: scale(0) translateY(20px); opacity: 0; }
+    to { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* Positions relative to 850px container */
+#marker-north { top: 120px; left: 425px; transform: translateX(-50%); }
+#marker-south { bottom: 120px; left: 425px; transform: translateX(-50%); }
+#marker-east { right: 120px; top: 425px; transform: translateY(-50%); }
+#marker-west { left: 120px; top: 425px; transform: translateY(-50%); }
+#marker-center { 
+    top: 425px; left: 425px; 
+    transform: translate(-50%, -50%); 
+    background: rgba(33, 37, 41, 0.9);
+    font-size: 24px;
+    padding: 15px 30px;
+    border-color: #ffd700;
 }
 
 /* Tables Container - Reset for Sidebar */
