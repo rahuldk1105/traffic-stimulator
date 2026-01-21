@@ -184,111 +184,151 @@ button.active {
     font-weight: bold;
 }
 
-.lanes-container {
-    margin-bottom: 30px;
-    border: 2px solid #333;
+/* Main Content Area adjustments for Intersection */
+.main-content {
+    flex-grow: 1;
+    display: flex;
+    flex-direction: column;
     padding: 20px;
-    background-color: #fafafa;
-}
-
-.lane {
-    margin-bottom: 15px;
-    border: 2px solid #333;
-    background-color: white;
-}
-
-.lane-header {
-    background-color: #333;
-    color: white;
-    padding: 8px 12px;
-    display: flex;
-    justify-content: space-between;
+    overflow: hidden; /* Prevent scrolling, intersection area is fixed */
     align-items: center;
-    font-size: 12px;
-}
-
-.lane-header.active {
-    background-color: #0066cc;
-}
-
-.lane-queue {
-    padding: 15px;
-    min-height: 60px;
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    overflow-x: auto;
-}
-
-.vehicle {
-    min-width: 60px;
-    height: 40px;
-    border: 2px solid #333;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 10px;
-    font-weight: bold;
-    transition: transform 0.7s linear, opacity 0.7s linear;
+    background-color: #e0e0e0;
     position: relative;
-    background-color: white; 
+}
+
+/* Hide old list elements if they exist in DOM for logic compatibility */
+.lanes-container {
+    display: none;
+}
+
+/* Intersection Layout */
+#intersection-container {
+    position: relative;
+    width: 600px; /* Constrain size for visibility */
+    height: 600px;
+    background-color: #555; /* Base ground */
+    margin-top: 20px;
+    border-radius: 8px;
+    box-shadow: 0 0 20px rgba(0,0,0,0.5);
+    overflow: hidden;
+}
+
+/* The Cross Shape (Roads) */
+.road-vertical, .road-horizontal {
+    position: absolute;
+    background-color: #333; /* Road service */
     z-index: 1;
 }
 
-.vehicle::before {
-    content: attr(data-type);
+.road-vertical {
+    width: 140px; /* ~2 lanes */
+    height: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 2px dashed #aaa;
+    border-right: 2px dashed #aaa;
+}
+
+.road-horizontal {
+    height: 140px;
+    width: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    border-top: 2px dashed #aaa;
+    border-bottom: 2px dashed #aaa;
+}
+
+/* Intersection Box */
+.intersection-center {
     position: absolute;
-    top: -18px;
-    font-size: 8px;
-    background: #333;
-    color: white;
-    padding: 2px 4px;
+    width: 140px;
+    height: 140px;
+    background-color: #444; 
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 2;
+    border: 1px dashed #666;
 }
 
-.vehicle.AMBULANCE {
-    background-color: #ff4444;
-    color: white;
+/* Stop Lines */
+.stop-line {
+    position: absolute;
+    background-color: white;
+    z-index: 3;
+}
+/* Stop Line North (Lane 0) */
+.stop-line.north { width: 66px; height: 4px; top: 228px; left: 232px; } 
+/* Stop Line East (Lane 1) */
+.stop-line.east { width: 4px; height: 66px; top: 232px; right: 228px; }
+/* Stop Line South (Lane 2) */
+.stop-line.south { width: 66px; height: 4px; bottom: 228px; left: 302px; }
+/* Stop Line West (Lane 3) */
+.stop-line.west { width: 4px; height: 66px; top: 302px; left: 228px; }
+
+/* Traffic Signals */
+.traffic-signal {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: #333;
+    border: 2px solid #000;
+    z-index: 6;
+    box-shadow: 0 0 2px rgba(0,0,0,0.8);
+    transition: background-color 0.2s;
+}
+.traffic-signal.north { top: 210px; left: 210px; }
+.traffic-signal.east { top: 210px; right: 210px; }
+.traffic-signal.south { bottom: 210px; right: 280px; } /* Corrected placement roughly */
+.traffic-signal.west { bottom: 280px; left: 210px; }
+
+.traffic-signal.green { background-color: #00ff00; box-shadow: 0 0 10px #00ff00; }
+.traffic-signal.red { background-color: #ff0000; box-shadow: 0 0 5px #ff0000; }
+
+/* Vehicle Visualization */
+.vehicle {
+    position: absolute;
+    width: 20px; /* Small box for top-down view */
+    height: 35px; /* Length */
+    border: 1px solid #000;
+    z-index: 10;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 9px;
+    font-weight: bold;
+    color: black;
+    border-radius: 2px;
+    /* Transform origin center for rotation */
+    transform-origin: center center;
+    transition: none; /* JS handles movement */
 }
 
-.vehicle.FIRE {
-    background-color: #ff9933;
-    color: white;
-}
+/* Vehicle Types Colors */
+.vehicle.AMBULANCE { background-color: #ff4444; color: white; }
+.vehicle.FIRE { background-color: #ff9933; color: black; }
+.vehicle.POLICE { background-color: #4444ff; color: white; }
+.vehicle.VIP { background-color: #9933ff; color: white; }
+.vehicle.BUS { background-color: #ffdd33; height: 50px; } /* Longer */
+.vehicle.NORMAL { background-color: #ddd; }
 
-.vehicle.POLICE {
-    background-color: #4444ff;
-    color: white;
-}
-
-.vehicle.VIP {
-    background-color: #9933ff;
-    color: white;
-}
-
-.vehicle.BUS {
-    background-color: #ffdd33;
-    color: #333;
-}
-
-.vehicle.NORMAL {
-    background-color: #999;
-    color: white;
-}
-
-.vehicle.moving-out {
-    transform: translateX(-80px); /* Move left out of queue */
-    opacity: 0;
-}
-
-.vehicle.shifting {
-    transform: translateX(-68px); /* Shift left by approx one vehicle slot (60 + 8 gap) */
-}
+/* Remove old vehicle styles that conflict */
+.vehicle::before { display: none; }
+.vehicle.moving-out { transform: none; opacity: 1; }
+.vehicle.shifting { transform: none; }
 
 .tables-container {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    margin-bottom: 20px;
+    position: absolute;
+    bottom: 0;
+    left: 20px;
+    width: 300px;
+    max-height: 250px;
+    overflow-y: auto;
+    background: white;
+    z-index: 20;
+    display: block;
+    margin: 0;
 }
 
 .table-section {
