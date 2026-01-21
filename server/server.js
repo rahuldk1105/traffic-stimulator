@@ -43,10 +43,11 @@ function calculateLanePriority(lane, scenario, currentTime) {
         let waitTime = currentTime - v.arrival_time;
         if (waitTime < 0) waitTime = 0;
 
-        let vPriority = BASE_WEIGHT + waitTime;
+        const basePriority = BASE_WEIGHT + waitTime;
+        let vPriority = basePriority;
+        let scenarioBoost = 0;
 
-        // Vehicle Type Priorities
-        // Vehicle Type Priorities
+        // Vehicle Type Priorities (Base)
         if (v.type === 'AMBULANCE') {
             vPriority += PRIORITY_AMBULANCE;
             boostReasons.add("🚑 Emergency");
@@ -63,20 +64,29 @@ function calculateLanePriority(lane, scenario, currentTime) {
 
         // --- SCENARIO VEHICLE BOOSTS ---
         if (scenario.is_school_zone && v.type === 'BUS') {
+            scenarioBoost += ADJUSTMENT_SCHOOL_BUS;
             vPriority += ADJUSTMENT_SCHOOL_BUS;
             boostReasons.add("🚌 School Bus");
         }
         if (scenario.is_vip && v.type === 'VIP') {
+            scenarioBoost += 5000;
             vPriority += 5000;
             boostReasons.add("🌟 VIP Convoy");
         }
         if (scenario.is_rush_hour) {
+            scenarioBoost += 200;
             vPriority += 200;
             boostReasons.add("🕒 Rush Hour");
         }
         if (scenario.is_heavy_weather) {
+            scenarioBoost -= 100;
             vPriority -= 100;
             boostReasons.add("🌧️ Weather Penalty");
+        }
+
+        // Log priority calculation for verification
+        if (scenarioBoost !== 0) {
+            console.log(`[PRIORITY] ${v.type}: Base=${basePriority}, Boost=${scenarioBoost > 0 ? '+' : ''}${scenarioBoost}, Final=${vPriority}`);
         }
 
         lanePriority += vPriority;

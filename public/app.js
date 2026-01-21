@@ -527,7 +527,7 @@ function toggleScenario(scenario, btn) {
         const flagName = scenarioMap[scenario];
         if (flagName) {
             state.scenario[flagName] = true;
-            console.log(`[UI] Scenario Activated: ${scenario} (${flagName}=true)`);
+            console.log(`[SCENARIO] ${scenario.toUpperCase()} activated (${flagName}=true)`);
         }
 
         // Update Visuals
@@ -537,10 +537,11 @@ function toggleScenario(scenario, btn) {
         handleInstantScenarioActions(scenario);
 
         // Force Backend Decision to update Priority Table immediately
+        console.log(`[SCENARIO] Triggering priority recalculation...`);
         if (!state.waitingForDecision) makeDecision();
 
     } else {
-        console.log(`[UI] Scenario Deactivated: ${scenario}`);
+        console.log(`[SCENARIO] All scenarios deactivated`);
         // Update to clear effects
         if (!state.waitingForDecision) makeDecision();
     }
