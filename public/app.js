@@ -679,7 +679,31 @@ function stopSimulation() {
         btn.style.backgroundColor = '';
         btn.style.color = '';
     }
-    console.log(`[SIMULATION] Stopped. Total Served: ${state.stats.served}`);
+
+    // Auto-Reset Scenarios (Flags, Visuals, UI)
+    if (state.activeScenarios) {
+        state.activeScenarios.forEach(s => updateScenarioVisuals(s, false));
+        state.activeScenarios.clear();
+    }
+
+    // Reset flags
+    const scenarioMap = {
+        'main_road': 'is_main_road',
+        'accident': 'is_accident',
+        'school_zone': 'is_school_zone',
+        'weather': 'is_heavy_weather',
+        'rush_hour': 'is_rush_hour',
+        'pedestrian': 'has_pedestrian_crossing',
+        'vip': 'is_vip'
+    };
+    if (state.scenario) {
+        Object.values(scenarioMap).forEach(flag => state.scenario[flag] = false);
+    }
+
+    // Reset Buttons
+    document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+
+    console.log(`[SIMULATION] Stopped. Total Served: ${state.stats.served}. Scenarios Reset.`);
 }
 
 function generateInitialTraffic() {
@@ -1184,12 +1208,39 @@ function updatePriorityViz(heap) {
         const row = document.createElement('tr');
         if (idx === 0) row.style.backgroundColor = 'rgba(76, 175, 80, 0.2)'; // Green tint for selected
 
+        // Fallback Logic for Boost Text (Handles stale server state)
+        let boostText = item.boost_details || '';
+        if (!boostText) {
+            const reasons = [];
+            const sc = state.scenario;
+            const lId = item.lane_id;
+
+            // Lane Constraints
+            if (sc.is_main_road && (lId === 0 || lId === 2)) reasons.push("🛣️ Main Road");
+            if (sc.is_accident && lId === 1) reasons.push("⚠️ BLOCKED");
+            if (sc.is_school_zone && lId === 3) reasons.push("🚸 School Lane");
+            if (sc.has_pedestrian_crossing && lId === 0) reasons.push("🚶 STOP");
+            if (sc.is_rush_hour) reasons.push("🕒 Rush Hour");
+            if (sc.is_heavy_weather) reasons.push("🌧️ Weather");
+
+            // Vehicle Constraints (Check queue)
+            const laneObj = state.lanes[lId];
+            if (laneObj) {
+                const hasBus = laneObj.vehicles.some(v => v.state === 'queued' && v.type === 'BUS');
+                const hasVip = laneObj.vehicles.some(v => v.state === 'queued' && v.type === 'VIP');
+
+                if (sc.is_school_zone && hasBus) reasons.push("🚌 Bus Boost");
+                if (sc.is_vip && hasVip) reasons.push("🌟 VIP Convoy");
+            }
+            boostText = [...new Set(reasons)].join(', ');
+        }
+
         row.innerHTML = `
             <td>${idx + 1}</td>
             <td>L${item.lane_id}</td>
             <td>${Math.round(item.priority)}</td>
             <td>${item.queue_length || item.vehicle_count || 0}</td>
-            <td style="font-size:0.75rem; color:#ffd700; max-width: 140px;">${item.boost_details || '-'}</td>
+            <td style="font-size:0.75rem; color:#ffd700; max-width: 140px;">${boostText || '-'}</td>
         `;
         tbody.appendChild(row);
     });

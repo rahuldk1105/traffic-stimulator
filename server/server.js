@@ -114,6 +114,7 @@ function calculateLanePriority(lane, scenario, currentTime) {
 app.post('/api/decide', (req, res) => {
     try {
         const { current_time, simulation_mode, lanes, ...scenario } = req.body;
+        console.log("[BACKEND] Scenario Flags:", JSON.stringify(scenario)); // Debug Log
 
         // 1. Calculate Priorities for all lanes
         const lanePriorities = lanes.map(l => {
