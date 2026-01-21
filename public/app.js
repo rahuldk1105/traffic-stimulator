@@ -520,6 +520,13 @@ function update(dt, currentTime) {
             }
         }
     }
+
+    // Auto-spawn logic
+    if (state.totalSpawned < CONFIG.MAX_VEHICLES_LIMIT && Math.random() < 0.01) { // 1% chance per frame
+        const types = ['NORMAL', 'NORMAL', 'BUS', 'NORMAL'];
+        const type = types[Math.floor(Math.random() * types.length)];
+        spawnVehicle(type);
+    }
 }
 
 // ==================== GEOMETRY HELPERS ====================
