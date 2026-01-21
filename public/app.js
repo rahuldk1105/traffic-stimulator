@@ -1364,7 +1364,13 @@ async function makeDecision() {
     };
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout for sluggish deployments
+    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout for cold starts (Render/Vercel)
+
+    // Visual Feedback for "Waiting"
+    const logBox = document.getElementById('decision-logs-content');
+    if (logBox) {
+        logBox.textContent = `[${new Date().toLocaleTimeString()}] 📡 Connecting to brain...\n` + logBox.textContent;
+    }
 
     try {
         const response = await fetch('/api/decide', {
