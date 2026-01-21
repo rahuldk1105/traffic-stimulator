@@ -3,30 +3,25 @@ const CONFIG = {
     SIGNAL_DURATION: 4000,
     VEHICLE_MOVE_DURATION: 1500,
 
-    // Geometry
-    INTERSECTION_SIZE: 600,
-    CENTER_BOX: 140,
-    LANE_WIDTH: 70, // Half of road width
+    // Geometry (Scale Up for 850px map)
+    INTERSECTION_SIZE: 850,
+    CENTER_BOX: 140, // Road width 140
+    LANE_WIDTH: 70,
 
-    // Lane Definitions (0: North, 1: East, 2: South, 3: West)
-    // Coords are relative to #intersection-container (0,0 top-left)
-    // Center is 300,300.
-    // Lane 0 (North->South): Approaches from Top. Enter (265, -50). Stop (265, 230). Exit Bottom.
-    // Lane 1 (East->West): Approaches from Right. Enter (650, 265). Stop (370, 265). Exit Left.
-    // Lane 2 (South->North): Approaches from Bottom. Enter (335, 650). Stop (335, 370). Exit Top.
-    // Lane 3 (West->East): Approaches from Left. Enter (-50, 335). Stop (230, 335). Exit Right.
+    // Center is 425, 425
+    // Stop Offset approx 72px from center (140/2 + buffer)
     LANES: {
-        0: { startX: 265, startY: -100, stopX: 265, stopY: 228, dirX: 0, dirY: 1, angle: 180 }, // North
-        1: { startX: 700, startY: 265, stopX: 372, stopY: 265, dirX: -1, dirY: 0, angle: 270 }, // East
-        2: { startX: 335, startY: 700, stopX: 335, stopY: 372, dirX: 0, dirY: -1, angle: 0 },   // South
-        3: { startX: -100, startY: 335, stopX: 228, stopY: 335, dirX: 1, dirY: 0, angle: 90 }    // West
+        0: { startX: 390, startY: -200, stopX: 390, stopY: 353, dirX: 0, dirY: 1, angle: 180 }, // North (Down)
+        1: { startX: 1050, startY: 390, stopX: 497, stopY: 390, dirX: -1, dirY: 0, angle: 270 }, // East (Left)
+        2: { startX: 460, startY: 1050, stopX: 460, stopY: 497, dirX: 0, dirY: -1, angle: 0 },   // South (Up)
+        3: { startX: -200, startY: 460, stopX: 353, stopY: 460, dirX: 1, dirY: 0, angle: 90 }     // West (Right)
     },
-    VEHICLE_LENGTH: 35,
-    VEHICLE_GAP: 15,
+    VEHICLE_LENGTH: 50, // 1.4x scale
+    VEHICLE_GAP: 20,
 
     // Hashing
-    HASH_TABLE_SIZE: 13, // Small prime for demo
-    HASH_PRIME: 7,       // Smaller prime for step
+    HASH_TABLE_SIZE: 13,
+    HASH_PRIME: 7,
 
     // Limits
     MAX_VEHICLES_LIMIT: 20
@@ -722,73 +717,73 @@ function getPath(laneId, direction) {
     const p0 = { x: laneCfg.stopX, y: laneCfg.stopY };
     let p1, p2;
 
-    // Exit targets (approximate off-screen points)
+    // Exit targets (approximate off-screen points for 850px map)
     const exits = {
-        NORTH: { x: 335, y: -100 }, // Exiting upwards
-        EAST: { x: 700, y: 335 }, // Exiting right
-        SOUTH: { x: 265, y: 700 }, // Exiting down
-        WEST: { x: -100, y: 265 } // Exiting left
+        NORTH: { x: 460, y: -200 }, // Exiting upwards
+        EAST: { x: 1050, y: 460 },  // Exiting right
+        SOUTH: { x: 390, y: 1050 }, // Exiting down
+        WEST: { x: -200, y: 390 }   // Exiting left
     };
 
     // Determine target based on Origin + Turn
-    // Lane 0 (North->South)
+    // Lane 0 (North->South, stop X=390, Y=353)
     if (laneId == 0) {
         if (direction === 'STRAIGHT') {
             p2 = exits.SOUTH;
-            p1 = { x: (p0.x + p2.x) / 2, y: (p0.y + p2.y) / 2 }; // Midpoint
+            p1 = { x: (p0.x + p2.x) / 2, y: (p0.y + p2.y) / 2 };
         } else if (direction === 'LEFT') {
-            // Turn Left (East)
+            // Turn Left (East, Y=460)
             p2 = exits.EAST;
-            p1 = { x: 265, y: 335 }; // Intersection of axes
+            p1 = { x: 390, y: 460 }; // Intersection of flow
         } else { // RIGHT
-            // Turn Right (West)
+            // Turn Right (West, Y=390)
             p2 = exits.WEST;
-            p1 = { x: 265, y: 265 }; // Tight corner
+            p1 = { x: 390, y: 390 };
         }
     }
-    // Lane 1 (East->West)
+    // Lane 1 (East->West, stop X=497, Y=390)
     else if (laneId == 1) {
         if (direction === 'STRAIGHT') {
             p2 = exits.WEST;
             p1 = { x: (p0.x + p2.x) / 2, y: (p0.y + p2.y) / 2 };
         } else if (direction === 'LEFT') {
-            // Turn Left (South)
+            // Turn Left (South, X=390)
             p2 = exits.SOUTH;
-            p1 = { x: 265, y: 265 };
+            p1 = { x: 390, y: 390 };
         } else { // RIGHT
-            // Turn Right (North)
+            // Turn Right (North, X=460)
             p2 = exits.NORTH;
-            p1 = { x: 335, y: 265 };
+            p1 = { x: 460, y: 390 };
         }
     }
-    // Lane 2 (South->North)
+    // Lane 2 (South->North, stop X=460, Y=497)
     else if (laneId == 2) {
         if (direction === 'STRAIGHT') {
             p2 = exits.NORTH;
             p1 = { x: (p0.x + p2.x) / 2, y: (p0.y + p2.y) / 2 };
         } else if (direction === 'LEFT') {
-            // Turn Left (West)
+            // Turn Left (West, Y=390)
             p2 = exits.WEST;
-            p1 = { x: 335, y: 265 };
+            p1 = { x: 460, y: 390 };
         } else { // RIGHT
-            // Turn Right (East)
+            // Turn Right (East, Y=460)
             p2 = exits.EAST;
-            p1 = { x: 335, y: 335 };
+            p1 = { x: 460, y: 460 };
         }
     }
-    // Lane 3 (West->East)
+    // Lane 3 (West->East, stop X=353, Y=460)
     else if (laneId == 3) {
         if (direction === 'STRAIGHT') {
             p2 = exits.EAST;
             p1 = { x: (p0.x + p2.x) / 2, y: (p0.y + p2.y) / 2 };
         } else if (direction === 'LEFT') {
-            // Turn Left (North)
+            // Turn Left (North, X=460)
             p2 = exits.NORTH;
-            p1 = { x: 335, y: 335 };
+            p1 = { x: 460, y: 460 };
         } else { // RIGHT
-            // Turn Right (South)
+            // Turn Right (South, X=390)
             p2 = exits.SOUTH;
-            p1 = { x: 265, y: 335 };
+            p1 = { x: 390, y: 460 };
         }
     }
 
