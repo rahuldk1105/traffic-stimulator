@@ -157,6 +157,15 @@ function initApp() {
                             <h3>Vehicle Lookup Table (Double Hashing)</h3>
                             <span>Size: ${CONFIG.HASH_TABLE_SIZE}, Prime: ${CONFIG.HASH_PRIME}</span>
                         </div>
+                        <p style="font-size:0.8rem; margin-bottom:10px;">
+                            h1(k) = k % ${CONFIG.HASH_TABLE_SIZE} <br>
+                            h2(k) = ${CONFIG.HASH_PRIME} - (k % ${CONFIG.HASH_PRIME})
+                        </p>
+                        
+                        <button id="btn-hash-demo" style="background:#ff9933; color:white; border:none; padding:5px 10px; border-radius:4px; margin-bottom:10px; cursor:pointer; font-size: 0.8rem;">
+                             ⚠️ Run 3-Way Collision Demo
+                        </button>
+
                         <table id="hash-table-view">
                             <thead>
                                 <tr>
@@ -255,8 +264,34 @@ function initApp() {
                                         <td id="pq-throughput">-</td>
                                     </tr>
                                 </tbody>
+                                </tbody>
                             </table>
                         </div>
+
+                        <!-- Static Priority Reference Table -->
+                        <div class="table-section" style="margin-top: 20px;">
+                            <h2>Base Priority Reference</h2>
+                            <table style="width:100%; font-size: 0.85rem; border-collapse: collapse; color: #ccc;">
+                                <thead>
+                                    <tr style="border-bottom: 1px solid #555; text-align: left;">
+                                        <th style="padding: 4px;">Type</th>
+                                        <th style="padding: 4px;">Base Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚑 Ambulance</td><td style="font-weight:bold;">10,000</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚒 Fire Truck</td><td style="font-weight:bold; color:#ff4444">7,000</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚓 Police</td><td style="font-weight:bold; color:#6666ff">5,000</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🌟 VIP</td><td style="font-weight:bold; color:#ffd700">3,000</td></tr>
+                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚌 Bus</td><td>0</td></tr>
+                                    <tr><td style="padding: 4px;">🚗 Normal</td><td>10</td></tr>
+                                </tbody>
+                            </table>
+                            <div style="font-size: 0.75rem; color: #aaa; margin-top: 8px; font-style: italic; line-height: 1.2;">
+                                Formula: Priority = Base + Wait Time (1/sec) + Scenario Bonuses
+                            </div>
+                        </div>
+
                     </div>
                 </div>
 
@@ -316,6 +351,62 @@ function initControls() {
             if (state.showHashing) renderHashView(); // Force Update
         };
     }
+
+    // Hash Demo Button
+    const btnHashDemo = document.getElementById('btn-hash-demo');
+    if (btnHashDemo) btnHashDemo.onclick = runHashCollisionDemo;
+}
+
+// ... existing code ...
+
+function runHashCollisionDemo() {
+    console.log("[HASH] Starting Collision Demo...");
+
+    // Clear Table
+    state.hashTable = new Array(CONFIG.HASH_TABLE_SIZE).fill(null);
+    renderHashView();
+    state.showHashing = true;
+    document.getElementById('hashing-panel').classList.add('active');
+
+    // Find 3 colliding keys (Same h1 and Same h2) to force chaining
+    const candidates = [];
+    let i = 1;
+    // Iterate to find strings that share hash properties
+    let targetH1 = -1;
+    let targetH2 = -1;
+
+    while (candidates.length < 3 && i < 2000) {
+        let str = "T" + i; // Short strings: T1, T2...
+        let k = getVehicleKey(str);
+        let m = CONFIG.HASH_TABLE_SIZE;
+        let p = CONFIG.HASH_PRIME;
+
+        let h1 = k % m;
+        let h2 = p - (k % p);
+
+        if (candidates.length === 0) {
+            // Pick first one as template
+            targetH1 = h1;
+            targetH2 = h2;
+            candidates.push(str);
+        } else {
+            if (h1 === targetH1 && h2 === targetH2) {
+                candidates.push(str);
+            }
+        }
+        i++;
+    }
+
+    console.log(`[HASH DEMO] Injecting setup: ${candidates.join(' -> ')} (All h1=${targetH1}, h2=${targetH2})`);
+
+    // Insert with visual delay
+    let count = 0;
+    insertToHashTable(candidates[count++]); // Immediate first
+
+    const intv = setInterval(() => {
+        if (count >= candidates.length) { clearInterval(intv); return; }
+        insertToHashTable(candidates[count++]);
+    }, 1500);
 }
 
 function setMode(mode) {
@@ -347,20 +438,20 @@ function insertToHashTable(vid) {
     let idx = h1;
     let i = 0;
 
-    // Log intent
-    console.log(`[HASHING] Insert ${vid} (Key: ${key}). H1=${h1}, H2=${h2}`);
+    // Detailed Log
+    console.log(`[HASH] Inserting ${vid} (Key=${key}) → h1=${h1}, h2=${h2}`);
 
     while (state.hashTable[idx] !== null && i < m) {
-        console.log(`[HASHING] Collision at ${idx}. Probing...`);
+        console.log(`[HASH] Probe ${i + 1}: Index ${idx} occupied by ${state.hashTable[idx].vid}. Collision!`);
         i++;
         idx = (h1 + i * h2) % m;
     }
 
     if (i < m) {
         state.hashTable[idx] = { vid, key, h1, h2, i, finalIdx: idx };
-        console.log(`[HASHING] Inserted at ${idx}`);
+        console.log(`[HASH] SUCCESS: ${vid} inserted at Index ${idx} after ${i} probes.`);
     } else {
-        console.log(`[HASHING] Table Full! Could not insert ${vid}`);
+        console.log(`[HASH] FAIL: Table Full! Could not insert ${vid}`);
     }
 
     // Force re-render of hash view if active
