@@ -35,11 +35,11 @@ function calculateLanePriority(lane, scenario, currentTime) {
     let lanePriority = 0;
     let totalWait = 0;
     let vehicleCount = lane.vehicles.length;
+    let boostReasons = new Set(); // Use Set to avoid duplicates
 
-    if (vehicleCount === 0) return { priority: 0, avgWait: 0 };
+    if (vehicleCount === 0) return { priority: 0, avgWait: 0, boostDetails: "-" };
 
     lane.vehicles.forEach(v => {
-        // Base weight + wait time factor
         let waitTime = currentTime - v.arrival_time;
         if (waitTime < 0) waitTime = 0;
 
@@ -50,8 +50,23 @@ function calculateLanePriority(lane, scenario, currentTime) {
         else if (v.type === 'FIRE') vPriority += PRIORITY_FIRE;
         else if (v.type === 'POLICE') vPriority += PRIORITY_POLICE;
         else if (v.type === 'VIP') vPriority += PRIORITY_VIP;
-        else if (v.type === 'BUS') {
-            // Bus logic
+
+        // --- SCENARIO VEHICLE BOOSTS ---
+        if (scenario.is_school_zone && v.type === 'BUS') {
+            vPriority += ADJUSTMENT_SCHOOL_BUS;
+            boostReasons.add("🚌 School Bus");
+        }
+        if (scenario.is_vip && v.type === 'VIP') {
+            vPriority += 5000;
+            boostReasons.add("🌟 VIP Convoy");
+        }
+        if (scenario.is_rush_hour) {
+            vPriority += 200;
+            boostReasons.add("🕒 Rush Hour");
+        }
+        if (scenario.is_heavy_weather) {
+            vPriority -= 100;
+            boostReasons.add("🌧️ Weather Penalty");
         }
 
         lanePriority += vPriority;
@@ -60,41 +75,37 @@ function calculateLanePriority(lane, scenario, currentTime) {
 
     const avgWait = totalWait / vehicleCount;
 
-    // Scenario Adjustments (Targeted for Demo)
-
-    // 1. "Main Road": North (0) and South (2) get higher priority
+    // --- LANE LEVEL ADJUSTMENTS ---
     if (scenario.is_main_road && (lane.id === 0 || lane.id === 2)) {
         lanePriority += ADJUSTMENT_MAIN_ROAD;
+        boostReasons.add("🛣️ Main Road");
     }
-
-    // 2. "Accident": Lane 1 (East) is blocked/slowed significantly
-    // BLOCKAGE LOGIC: Extreme negative priority to prevent green signal
     if (scenario.is_accident && lane.id === 1) {
         lanePriority = -99999;
+        boostReasons.clear();
+        boostReasons.add("⚠️ BLOCKED (Accident)");
     }
-
-    // 3. "School Zone": Lane 3 (West) gets priority (e.g. school buses)
     if (scenario.is_school_zone && lane.id === 3) {
-        lanePriority += ADJUSTMENT_SCHOOL_BUS;
+        lanePriority += 1000;
+        boostReasons.add("🚸 School Lane");
     }
-
-    // 4. "Pedestrian": Lane 0 (North) yields to pedestrians
-    // STOP LOGIC: Extreme negative priority
     if (scenario.has_pedestrian_crossing && lane.id === 0) {
         lanePriority = -99999;
+        boostReasons.clear();
+        boostReasons.add("🚶 STOP (Pedestrians)");
     }
 
-    // 5. "Rush Hour": Heavily loaded lanes get bonus to clear
+    // Rush Hour Lane
     if (scenario.is_rush_hour && vehicleCount > 5) {
         lanePriority += 500;
+        boostReasons.add("🔥 High Traffic");
     }
 
-    // 6. "Heavy Weather": General reduction
-    if (scenario.is_heavy_weather) {
-        lanePriority -= 500;
-    }
-
-    return { priority: lanePriority, avgWait };
+    return {
+        priority: lanePriority,
+        avgWait,
+        boostDetails: Array.from(boostReasons).join(', ')
+    };
 }
 
 // ============= ENDPOINTS =============
@@ -106,12 +117,13 @@ app.post('/api/decide', (req, res) => {
 
         // 1. Calculate Priorities for all lanes
         const lanePriorities = lanes.map(l => {
-            const { priority, avgWait } = calculateLanePriority(l, scenario, current_time);
+            const { priority, avgWait, boostDetails } = calculateLanePriority(l, scenario, current_time);
             return {
                 lane_id: l.id,
                 priority,
                 avg_wait: avgWait,
-                queue_length: l.vehicles.length
+                queue_length: l.vehicles.length,
+                boost_details: boostDetails // Pass to frontend for visualization
             };
         });
 

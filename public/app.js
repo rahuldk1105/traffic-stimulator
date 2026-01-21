@@ -236,6 +236,7 @@ function initApp() {
                                         <th>Lane</th>
                                         <th>Prio</th>
                                         <th>Q</th>
+                                        <th>Boosts</th>
                                     </tr>
                                 </thead>
                                 <tbody></tbody>
@@ -503,7 +504,8 @@ function toggleScenario(scenario, btn) {
         'school_zone': 'is_school_zone',
         'weather': 'is_heavy_weather',
         'rush_hour': 'is_rush_hour',
-        'pedestrian': 'has_pedestrian_crossing'
+        'pedestrian': 'has_pedestrian_crossing',
+        'vip': 'is_vip'
     };
     Object.values(scenarioMap).forEach(flag => state.scenario[flag] = false);
 
@@ -524,8 +526,14 @@ function toggleScenario(scenario, btn) {
 
         // Trigger Immediate Actions (Spawns, etc.)
         handleInstantScenarioActions(scenario);
+
+        // Force Backend Decision to update Priority Table immediately
+        if (!state.waitingForDecision) makeDecision();
+
     } else {
         console.log(`[UI] Scenario Deactivated: ${scenario}`);
+        // Update to clear effects
+        if (!state.waitingForDecision) makeDecision();
     }
 }
 
@@ -1129,77 +1137,59 @@ function render() {
     // PQ wait is usually lower. RR wait higher.
     const baseWait = state.lanes.reduce((acc, l) => acc + l.vehicles.length, 0) * 2;
     const pqWait = (baseWait * 0.8).toFixed(1) + 's';
-    const rrWait = (baseWait * 1.2).toFixed(1) + 's'; // simple visual diff
-
     // Throughput: served / time
-    // We need simulation start time.
     if (!state.simStartTime && state.isRunning) state.simStartTime = Date.now();
 
-    let throughput = 0;
+    let throughput = "0.0";
     if (state.simStartTime && state.stats.served > 0) {
         const mins = (Date.now() - state.simStartTime) / 60000;
         if (mins > 0) throughput = (state.stats.served / mins).toFixed(1);
     }
 
-    const pqT = state.simulationMode === 'PRIORITY' ? throughput : (throughput * 1.1).toFixed(1); // PQ usually higher
-    const rrT = state.simulationMode === 'ROUND_ROBIN' ? throughput : (throughput * 0.9).toFixed(1);
-
-    // Update cells
+    // Update comparison table based on mode
     const rrWaitEl = document.getElementById('rr-wait');
     if (rrWaitEl) {
-        // Only update active column with real data, inactive with estimate?
-        // Or just show current stats in both for now, identifying active?
-
-        // Active Highlight
-        const rrHeader = document.getElementById('header-rr');
-        const pqHeader = document.getElementById('header-pq');
+        const headerRR = document.getElementById('header-rr');
+        const headerPQ = document.getElementById('header-pq');
 
         if (state.simulationMode === 'ROUND_ROBIN') {
-            rrHeader.style.backgroundColor = '#28a745';
-            pqHeader.style.backgroundColor = '#333';
-            rrWaitEl.textContent = 'Active'; // Real calc needed
+            if (headerRR) headerRR.style.backgroundColor = '#28a745';
+            if (headerPQ) headerPQ.style.backgroundColor = '#333';
+            rrWaitEl.textContent = 'Active';
             document.getElementById('rr-throughput').textContent = throughput;
-            // Fake the other
-            document.getElementById('pq-wait').textContent = 'Est. -20%';
-            document.getElementById('pq-throughput').textContent = 'Est. +15%';
+
+            document.getElementById('pq-wait').textContent = '-';
+            document.getElementById('pq-throughput').textContent = '-';
         } else {
-            pqHeader.style.backgroundColor = '#28a745';
-            rrHeader.style.backgroundColor = '#333';
+            if (headerPQ) headerPQ.style.backgroundColor = '#28a745';
+            if (headerRR) headerRR.style.backgroundColor = '#333';
             document.getElementById('pq-wait').textContent = 'Active';
             document.getElementById('pq-throughput').textContent = throughput;
-            document.getElementById('rr-wait').textContent = 'Est. +20%';
-            document.getElementById('rr-throughput').textContent = 'Est. -15%';
+
+            document.getElementById('rr-wait').textContent = '-';
+            document.getElementById('rr-throughput').textContent = '-';
         }
     }
 }
 
 function updatePriorityViz(heap) {
     const tbody = document.querySelector('#priority-queue-table tbody');
+    if (!tbody) return;
     tbody.innerHTML = '';
 
-    if (!heap || !Array.isArray(heap)) return;
+    // Heap items: { lane_id, priority, queue_length, boost_details }
+    const sorted = [...heap].sort((a, b) => b.priority - a.priority);
 
-    heap.forEach((node, idx) => {
+    sorted.forEach((item, idx) => {
         const row = document.createElement('tr');
-        if (node.lane_id === state.currentGreenLane) {
-            row.classList.add('selected-row');
-        }
-
-        const lane = state.lanes[node.lane_id];
-        const queuedVehicles = lane ? lane.vehicles.filter(v => v.state === 'queued' || v.state === 'shifting') : [];
-        const topV = queuedVehicles[0];
-
-        let topText = '-';
-        if (topV) {
-            topText = `${topV.id} (${topV.type}) [${topV.direction[0]}]`;
-        }
+        if (idx === 0) row.style.backgroundColor = 'rgba(76, 175, 80, 0.2)'; // Green tint for selected
 
         row.innerHTML = `
             <td>${idx + 1}</td>
-            <td>Lane ${node.lane_id}</td>
-            <td>${node.priority}</td>
-            <td>${queuedVehicles.length}</td>
-            <td>${topText}</td>
+            <td>L${item.lane_id}</td>
+            <td>${Math.round(item.priority)}</td>
+            <td>${item.queue_length || item.vehicle_count || 0}</td>
+            <td style="font-size:0.75rem; color:#ffd700; max-width: 140px;">${item.boost_details || '-'}</td>
         `;
         tbody.appendChild(row);
     });
