@@ -144,10 +144,114 @@ button:hover {
     color: white;
 }
 
-button.active {
-    background-color: #333;
-    color: white;
+/* Injection Panel */
+    display: flex;
+    flex-direction: column;
 }
+
+.injection-panel {
+    background-color: #f8f9fa;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 10px;
+    margin-bottom: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Hashing Panel */
+.hashing-panel {
+    background-color: #f0f0f0;
+    border: 1px solid #999;
+    border-radius: 4px;
+    padding: 10px;
+    width: 600px; /* Match intersection width */
+    margin-top: 20px;
+    margin-bottom: 20px;
+    display: none; /* Hidden by default */
+}
+
+.hashing-panel.active {
+    display: block;
+}
+
+.hashing-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+    border-bottom: 1px solid #ccc;
+    padding-bottom: 5px;
+}
+
+#hash-table-view {
+    width: 100%;
+    font-size: 11px;
+    border-collapse: collapse;
+}
+
+#hash-table-view th, #hash-table-view td {
+    border: 1px solid #bbb;
+    padding: 4px;
+    text-align: center;
+}
+
+#hash-table-view th {
+    background-color: #ddd;
+    font-weight: bold;
+}
+
+#hash-table-view tr.filled {
+    background-color: #e6f7ff;
+}
+
+#btn-toggle-hash {
+    font-size: 12px;
+    padding: 5px 10px;
+    background: #666;
+    color: white;
+    border: none;
+    cursor: pointer;
+    margin-bottom: 10px;
+}
+
+.injection-group {
+    display: flex;
+    flex-direction: column;
+}
+
+.injection-group label {
+    font-size: 10px;
+    font-weight: bold;
+    margin-bottom: 2px;
+    color: #666;
+}
+
+.injection-cntrl {
+    padding: 5px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+#btn-inject {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 6px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: bold;
+    margin-top: 12px;
+}
+
+#btn-inject:hover {
+    background-color: #0056b3;
+}
+
 
 /* Legacy overrides */
 .container {

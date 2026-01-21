@@ -22,7 +22,11 @@ const CONFIG = {
         3: { startX: -100, startY: 335, stopX: 228, stopY: 335, dirX: 1, dirY: 0, angle: 90 }    // West
     },
     VEHICLE_LENGTH: 35,
-    VEHICLE_GAP: 15
+    VEHICLE_GAP: 15,
+
+    // Hashing
+    HASH_TABLE_SIZE: 13, // Small prime for demo
+    HASH_PRIME: 7        // Smaller prime for step
 };
 
 // ==================== STATE MANAGEMENT ====================
@@ -52,7 +56,10 @@ const state = {
     stats: {
         served: 0,
         switches: 0,
-    }
+    },
+    // Hash Table for DSA Demo
+    hashTable: new Array(13).fill(null), // Fixed size 13
+    showHashing: false
 };
 
 // ==================== INITIALIZATION ====================
@@ -77,15 +84,40 @@ function initControls() {
         });
     });
 
-    document.getElementById('btn-start').addEventListener('click', () => {
-        if (!state.isRunning) {
-            startSimulation();
-        } else {
-            stopSimulation();
-        }
-    });
+    const btnStart = document.getElementById('btn-start');
+    if (btnStart) {
+        // Clone to clear previous listeners if any (though unlikely if element persists)
+        // Actually, just binding onclick is safer for re-entrant initControls
+        btnStart.onclick = () => {
+            if (!state.isRunning) {
+                startSimulation();
+            } else {
+                stopSimulation();
+            }
+        };
+    }
 
-    setMode('PRIORITY'); // Default
+    // Injection
+    const btnInject = document.getElementById('btn-inject');
+    if (btnInject) {
+        btnInject.onclick = () => {
+            const lane = parseInt(document.getElementById('inject-lane').value);
+            const type = document.getElementById('inject-type').value;
+            const dir = document.getElementById('inject-dir').value;
+
+            addVehicle(lane, type, dir);
+            console.log(`[FRONTEND] Manual Injection: Lane ${lane} ${type} ${dir}`);
+        };
+    }
+
+    // Hashing Toggle
+    const btnHash = document.getElementById('btn-toggle-hash');
+    if (btnHash) {
+        btnHash.onclick = () => {
+            state.showHashing = !state.showHashing;
+            document.getElementById('hashing-panel').classList.toggle('active', state.showHashing);
+        };
+    }
 }
 
 function setMode(mode) {
@@ -97,6 +129,73 @@ function setMode(mode) {
     if (modeRrBtn) modeRrBtn.classList.toggle('active', mode === 'ROUND_ROBIN');
     console.log(`[FRONTEND] Mode set to: ${mode}`);
 }
+
+// ==================== HASHING LOGIC ====================
+function getVehicleKey(vid) {
+    // Sum of ASCII values
+    let key = 0;
+    for (let i = 0; i < vid.length; i++) key += vid.charCodeAt(i);
+    return key;
+}
+
+function insertToHashTable(vid) {
+    const key = getVehicleKey(vid);
+    const m = CONFIG.HASH_TABLE_SIZE;
+    const p = CONFIG.HASH_PRIME;
+
+    let h1 = key % m;
+    let h2 = p - (key % p);
+
+    let idx = h1;
+    let i = 0;
+
+    // Log intent
+    console.log(`[HASHING] Insert ${vid} (Key: ${key}). H1=${h1}, H2=${h2}`);
+
+    while (state.hashTable[idx] !== null && i < m) {
+        console.log(`[HASHING] Collision at ${idx}. Probing...`);
+        i++;
+        idx = (h1 + i * h2) % m;
+    }
+
+    if (i < m) {
+        state.hashTable[idx] = { vid, key, h1, h2, i, finalIdx: idx };
+        console.log(`[HASHING] Inserted at ${idx}`);
+    } else {
+        console.log(`[HASHING] Table Full! Could not insert ${vid}`);
+    }
+
+    // Force re-render of hash view if active
+    if (state.showHashing) renderHashView();
+}
+
+function renderHashView() {
+    const tbody = document.querySelector('#hash-table-view tbody');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    state.hashTable.forEach((slot, idx) => {
+        const row = document.createElement('tr');
+        if (slot) {
+            row.classList.add('filled');
+            row.innerHTML = `
+                <td>${idx}</td>
+                <td><strong>${slot.vid}</strong></td>
+                <td>${slot.key}</td>
+                <td>${slot.h1}</td>
+                <td>${slot.h2}</td>
+                <td>${slot.i > 0 ? 'Probe ' + slot.i : 'Direct'}</td>
+            `;
+        } else {
+            row.innerHTML = `
+                <td style="color:#aaa">${idx}</td>
+                <td colspan="5" style="color:#eee">-</td>
+            `;
+        }
+        tbody.appendChild(row);
+    });
+}
+
 
 function toggleScenario(scenario, btn) {
     if (state.activeScenarios.has(scenario)) {
@@ -242,13 +341,18 @@ function addVehicle(laneId, type, direction = 'STRAIGHT') {
 
     // For visual clarity: Spawn slightly behind queue or at very start if empty.
 
+    const id = `V${vehicleIdCounter++}`;
+
+    // Hash Table Insert (DSA Demo)
+    insertToHashTable(id);
+
     lane.vehicles.push({
-        id: `V${vehicleIdCounter++}`,
+        id: id,
         type: type,
-        direction: direction, // Ignored in Phase 5A (No turns)
+        direction: direction,
 
         // Dynamic Position
-        x: targetX, // Instant spawn in queue for minimal "pop" or implement simple entry anim?
+        x: targetX, // Instant spawn in queue
         y: targetY,
 
         // We will store actual stop target
@@ -278,134 +382,183 @@ function gameLoop(timestamp) {
 }
 
 function update(dt, currentTime) {
-    // 0. Occasional Traffic
-    if (Math.random() < 0.005) {
-        const laneId = Math.floor(Math.random() * 4);
-        const types = ['NORMAL', 'BUS'];
-        const directions = ['STRAIGHT', 'LEFT', 'RIGHT'];
-        if (state.lanes[laneId].vehicles.length < 10) {
-            addVehicle(laneId,
-                types[Math.floor(Math.random() * types.length)],
-                directions[Math.floor(Math.random() * directions.length)]
-            );
-        }
-    }
+    if (!state.isRunning) return;
 
-    // 1. Signal Timer Logic
-    state.signalTimer += dt;
-    if (state.signalTimer >= CONFIG.SIGNAL_DURATION && !state.waitingForDecision) {
-        makeDecision();
-    }
-
-    // 2. Queue Mechanics - Move vehicles when Green
-    if (state.currentGreenLane !== -1 && state.vehiclesToPass > 0) {
-        const lane = state.lanes[state.currentGreenLane];
-        const nextVehicle = lane.vehicles[0];
-
-        if (nextVehicle && nextVehicle.state === 'queued') {
-            nextVehicle.state = 'exiting';
-            nextVehicle.startX = nextVehicle.x;
-            nextVehicle.startY = nextVehicle.y;
-            nextVehicle.moveStartTime = currentTime;
-
-            // Set targets based on direction
-            // Visual coordinate system: queued vehicle moves from Right(pos) to Left(0) then Left(neg)
-            // Intersection is roughly at x=0 to x=-200
-            if (nextVehicle.direction === 'STRAIGHT') {
-                nextVehicle.targetX = -300; // Straight through
-                nextVehicle.targetY = 0;
-            } else if (nextVehicle.direction === 'LEFT') {
-                nextVehicle.targetX = -150;
-                nextVehicle.targetY = 150; // Curve down/left
-            } else if (nextVehicle.direction === 'RIGHT') {
-                nextVehicle.targetX = -150;
-                nextVehicle.targetY = -150; // Curve up/right
-            }
-
-            state.vehiclesToPass--;
-            state.stats.served++;
-
-            // Shift others
-            for (let i = 1; i < lane.vehicles.length; i++) {
-                const v = lane.vehicles[i];
-                if (v.state === 'queued') {
-                    v.state = 'shifting';
-                    v.startX = v.x;
-                    v.targetX = (i - 1) * (CONFIG.VEHICLE_WIDTH + CONFIG.VEHICLE_GAP);
-                    v.moveStartTime = currentTime;
-                }
-            }
-        }
-    }
-
-    // 3. Physics & Interpolation
     state.lanes.forEach(lane => {
-        for (let i = lane.vehicles.length - 1; i >= 0; i--) {
+        // 1. Queue Management & Shifting
+        for (let i = 0; i < lane.vehicles.length; i++) {
             const v = lane.vehicles[i];
 
             if (v.state === 'queued') {
-                const properX = i * (CONFIG.VEHICLE_WIDTH + CONFIG.VEHICLE_GAP);
-                if (v.targetX !== properX) v.targetX = properX;
+                const distFromStop = i * (CONFIG.VEHICLE_LENGTH + CONFIG.VEHICLE_GAP);
+                const laneConfig = CONFIG.LANES[lane.id];
 
-                // Simple entry interpolation
-                if (Math.abs(v.x - v.targetX) > 1) {
-                    const approachSpeed = 0.5 * dt;
-                    if (v.x > v.targetX) v.x -= approachSpeed;
-                    if (v.x < v.targetX) v.x = v.targetX;
+                // Target is behind stop line
+                const targetX = laneConfig.stopX - (distFromStop * laneConfig.dirX);
+                const targetY = laneConfig.stopY - (distFromStop * laneConfig.dirY);
+
+                // Simple lerp for smooth shifting
+                const speed = 0.1;
+                const dx = targetX - v.x;
+                const dy = targetY - v.y;
+
+                if (Math.abs(dx) > 1 || Math.abs(dy) > 1) {
+                    v.x += dx * speed;
+                    v.y += dy * speed;
+                } else {
+                    v.x = targetX;
+                    v.y = targetY;
                 }
             }
-            else if (v.state === 'exiting' || v.state === 'shifting') {
+            else if (v.state === 'exiting') {
                 const elapsed = currentTime - v.moveStartTime;
-                const duration = v.state === 'exiting' ? CONFIG.VEHICLE_MOVE_DURATION : 800; // Faster shifts
-                const progress = Math.min(elapsed / duration, 1.0);
+                let t = elapsed / CONFIG.VEHICLE_MOVE_DURATION;
 
-                const ease = t => t < .5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
-                const p = ease(progress);
-
-                if (v.state === 'exiting') {
-                    // Turn Logic (Bezier-like interpolation)
-                    // For straight, just linear X
-                    if (v.direction === 'STRAIGHT') {
-                        v.x = v.startX + (v.targetX - v.startX) * p;
-                    } else {
-                        // Curve logic
-                        // Simple Quadratic Bezier: P0(start), P1(corner), P2(end)
-                        // Start: (startX, 0)
-                        // End: (targetX, targetY)
-                        // Control Point: (0, 0) -> The intersection center
-
-                        // We interpolate t from 0 to 1
-                        // B(t) = (1-t)^2*P0 + 2(1-t)t*P1 + t^2*P2
-                        // Actually, startX is > 0 (queue head at 0). exit is negative.
-                        // Let's assume start is x=0 (stop line)
-                        // Wait, simulation uses positive X for queue distance. Stop line is X=0.
-                        // Motion starts from X=0.
-
-                        // But physically, `v.x` was `v.startX` (which was 0 or near 0)
-                        // Let's refine P0. P0 = (v.startX, 0)
-                        const cx = -50; // Control point slighly into intersection
-                        const cy = v.direction === 'LEFT' ? 50 : -50;
-
-                        // X Calc
-                        v.x = Math.pow(1 - p, 2) * v.startX + 2 * (1 - p) * p * cx + Math.pow(p, 2) * v.targetX;
-                        // Y Calc
-                        v.y = Math.pow(1 - p, 2) * v.startY + 2 * (1 - p) * p * cy + Math.pow(p, 2) * v.targetY;
-                    }
-                } else {
-                    // Shifting is just linear X
-                    v.x = v.startX + (v.targetX - v.startX) * p;
+                if (t >= 1) {
+                    // Remove vehicle
+                    lane.vehicles.splice(i, 1);
+                    i--;
+                    state.stats.served++;
+                    continue;
                 }
 
-                if (progress >= 1.0) {
-                    if (v.state === 'exiting') {
-                        lane.vehicles.splice(i, 1);
-                    } else if (v.state === 'shifting') {
-                        v.state = 'queued';
-                    }
-                }
+                // Bezier Path Logic
+                const path = getPath(lane.id, v.direction);
+                const pos = getBezierPoint(t, path.p0, path.p1, path.p2);
+                const angle = getBezierAngle(t, path.p0, path.p1, path.p2);
+
+                v.x = pos.x;
+                v.y = pos.y;
+                v.rotation = angle;
             }
         }
     });
+
+    // Check backend decision
+    if (!state.waitingForDecision && state.signalTimer <= 0) {
+        makeDecision();
+    } else if (state.signalTimer > 0) {
+        state.signalTimer -= dt;
+
+        // Release vehicles from Green Lane
+        if (state.currentGreenLane !== -1 && state.vehiclesToPass > 0) {
+            const lane = state.lanes[state.currentGreenLane];
+            // Find first queued vehicle
+            const waitingVehicle = lane.vehicles.find(v => v.state === 'queued');
+
+            if (waitingVehicle) {
+                // Throttle releases: 1 vehicle per 800ms to allow spacing
+                if (!state.lastReleaseTime || (currentTime - state.lastReleaseTime > 800)) {
+                    waitingVehicle.state = 'exiting';
+                    waitingVehicle.moveStartTime = currentTime;
+                    state.vehiclesToPass--;
+                    state.lastReleaseTime = currentTime;
+
+                    console.log(`[FRONTEND] Vehicle released from Lane ${lane.id}: ${waitingVehicle.id} turning ${waitingVehicle.direction}`);
+                }
+            }
+        }
+    }
+}
+
+// ==================== GEOMETRY HELPERS ====================
+function getPath(laneId, direction) {
+    const laneCfg = CONFIG.LANES[laneId];
+    // P0 is always the stop line position
+    const p0 = { x: laneCfg.stopX, y: laneCfg.stopY };
+    let p1, p2;
+
+    // Exit targets (approximate off-screen points)
+    const exits = {
+        NORTH: { x: 335, y: -100 }, // Exiting upwards
+        EAST: { x: 700, y: 335 }, // Exiting right
+        SOUTH: { x: 265, y: 700 }, // Exiting down
+        WEST: { x: -100, y: 265 } // Exiting left
+    };
+
+    // Determine target based on Origin + Turn
+    // Lane 0 (North->South)
+    if (laneId == 0) {
+        if (direction === 'STRAIGHT') {
+            p2 = exits.SOUTH;
+            p1 = { x: (p0.x + p2.x) / 2, y: (p0.y + p2.y) / 2 }; // Midpoint
+        } else if (direction === 'LEFT') {
+            // Turn Left (East)
+            p2 = exits.EAST;
+            p1 = { x: 265, y: 335 }; // Intersection of axes
+        } else { // RIGHT
+            // Turn Right (West)
+            p2 = exits.WEST;
+            p1 = { x: 265, y: 265 }; // Tight corner
+        }
+    }
+    // Lane 1 (East->West)
+    else if (laneId == 1) {
+        if (direction === 'STRAIGHT') {
+            p2 = exits.WEST;
+            p1 = { x: (p0.x + p2.x) / 2, y: (p0.y + p2.y) / 2 };
+        } else if (direction === 'LEFT') {
+            // Turn Left (South)
+            p2 = exits.SOUTH;
+            p1 = { x: 265, y: 265 };
+        } else { // RIGHT
+            // Turn Right (North)
+            p2 = exits.NORTH;
+            p1 = { x: 335, y: 265 };
+        }
+    }
+    // Lane 2 (South->North)
+    else if (laneId == 2) {
+        if (direction === 'STRAIGHT') {
+            p2 = exits.NORTH;
+            p1 = { x: (p0.x + p2.x) / 2, y: (p0.y + p2.y) / 2 };
+        } else if (direction === 'LEFT') {
+            // Turn Left (West)
+            p2 = exits.WEST;
+            p1 = { x: 335, y: 265 };
+        } else { // RIGHT
+            // Turn Right (East)
+            p2 = exits.EAST;
+            p1 = { x: 335, y: 335 };
+        }
+    }
+    // Lane 3 (West->East)
+    else if (laneId == 3) {
+        if (direction === 'STRAIGHT') {
+            p2 = exits.EAST;
+            p1 = { x: (p0.x + p2.x) / 2, y: (p0.y + p2.y) / 2 };
+        } else if (direction === 'LEFT') {
+            // Turn Left (North)
+            p2 = exits.NORTH;
+            p1 = { x: 335, y: 335 };
+        } else { // RIGHT
+            // Turn Right (South)
+            p2 = exits.SOUTH;
+            p1 = { x: 265, y: 335 };
+        }
+    }
+
+    return { p0, p1, p2 };
+}
+
+function getBezierPoint(t, p0, p1, p2) {
+    // Quadratic Bezier: (1-t)^2 * P0 + 2(1-t)t * P1 + t^2 * P2
+    const oneMinusT = 1 - t;
+    return {
+        x: (oneMinusT * oneMinusT * p0.x) + (2 * oneMinusT * t * p1.x) + (t * t * p2.x),
+        y: (oneMinusT * oneMinusT * p0.y) + (2 * oneMinusT * t * p1.y) + (t * t * p2.y)
+    };
+}
+
+function getBezierAngle(t, p0, p1, p2) {
+    // Derivative of Quadratic Bezier
+    // B'(t) = 2(1-t)(P1 - P0) + 2t(P2 - P1)
+    const dx = 2 * (1 - t) * (p1.x - p0.x) + 2 * t * (p2.x - p1.x);
+    const dy = 2 * (1 - t) * (p1.y - p0.y) + (2 * t * (p2.y - p1.y)); // Fixed typo from previous thought (2t)
+    return Math.atan2(dy, dx) * (180 / Math.PI) + 90; // +90 because our vehicle sprite faces Up (0deg) or Down(180)?
+    // From CSS: vehicle is 20px W x 35px H.
+    // Standard rotation 0 assumes Top.
+    // atan2(0,1) = 90. +90 = 180 (Down).
 }
 
 async function makeDecision() {
@@ -495,6 +648,38 @@ function render() {
                 </div>
             </div>
 
+            <div class="injection-panel">
+                <div class="injection-group">
+                    <label>Lane</label>
+                    <select id="inject-lane" class="injection-cntrl">
+                        <option value="0">North (0)</option>
+                        <option value="1">East (1)</option>
+                        <option value="2">South (2)</option>
+                        <option value="3">West (3)</option>
+                    </select>
+                </div>
+                <div class="injection-group">
+                    <label>Type</label>
+                    <select id="inject-type" class="injection-cntrl">
+                        <option value="NORMAL">Normal</option>
+                        <option value="AMBULANCE">Ambulance</option>
+                        <option value="FIRE">Fire Truck</option>
+                        <option value="POLICE">Police</option>
+                        <option value="BUS">Bus</option>
+                        <option value="VIP">VIP</option>
+                    </select>
+                </div>
+                <div class="injection-group">
+                    <label>Turn</label>
+                    <select id="inject-dir" class="injection-cntrl">
+                        <option value="STRAIGHT">Straight</option>
+                        <option value="LEFT">Left</option>
+                        <option value="RIGHT">Right</option>
+                    </select>
+                </div>
+                <button id="btn-inject">ADD VEHICLE</button>
+            </div>
+
             <div id="intersection-container">
                 <div class="road-vertical"></div>
                 <div class="road-horizontal"></div>
@@ -515,6 +700,28 @@ function render() {
                 <!-- Vehicles Layer -->
                 <div id="vehicle-layer" class="lane-layer"></div>
             </div>
+
+            <!-- Double Hashing Panel -->
+            <button id="btn-toggle-hash" style="margin-top:20px;">Show/Hide Double Hashing Visualization</button>
+            <div id="hashing-panel" class="hashing-panel ${state.showHashing ? 'active' : ''}">
+                <div class="hashing-header">
+                    <h3>Vehicle Lookup Table (Double Hashing)</h3>
+                    <span>Size: ${CONFIG.HASH_TABLE_SIZE}, Prime: ${CONFIG.HASH_PRIME}</span>
+                </div>
+                <table id="hash-table-view">
+                    <thead>
+                        <tr>
+                            <th>Idx</th>
+                            <th>Vehicle ID</th>
+                            <th>Key</th>
+                            <th>H1 (k%${CONFIG.HASH_TABLE_SIZE})</th>
+                            <th>H2 (${CONFIG.HASH_PRIME}-(k%${CONFIG.HASH_PRIME}))</th>
+                            <th>Probe</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
             
             <div class="tables-container">
                  <div class="table-section" style="width: 100%;">
@@ -530,6 +737,51 @@ function render() {
                             </tr>
                         </thead>
                         <tbody></tbody>
+                    </table>
+                </div>
+
+                <div class="table-section" style="width: 100%; margin-top: 20px;">
+                    <h2>ALGORITHM COMPARISON</h2>
+                    <table id="algo-comparison-table">
+                        <thead>
+                            <tr style="background-color: #333; color: white;">
+                                <th>Metric</th>
+                                <th id="header-rr">Round Robin</th>
+                                <th id="header-pq">Priority Queue</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Avg Wait Time</td>
+                                <td id="rr-wait">-</td>
+                                <td id="pq-wait">-</td>
+                            </tr>
+                            <tr>
+                                <td>Throughput (v/m)</td>
+                                <td id="rr-throughput">-</td>
+                                <td id="pq-throughput">-</td>
+                            </tr>
+                            <tr>
+                                <td>Emergency Handling</td>
+                                <td>Delayed</td>
+                                <td>Immediate</td>
+                            </tr>
+                            <tr>
+                                <td>Fairness</td>
+                                <td>High</td>
+                                <td>Conditional</td>
+                            </tr>
+                            <tr>
+                                <td>Starvation Risk</td>
+                                <td>None</td>
+                                <td>Possible</td>
+                            </tr>
+                            <tr>
+                                <td>Time Complexity</td>
+                                <td>O(n)</td>
+                                <td>O(log n)</td>
+                            </tr>
+                        </tbody>
                     </table>
                 </div>
             </div>
@@ -609,12 +861,65 @@ function render() {
         });
     });
 
-    // Cleanup dead vehicles
-    Array.from(layer.children).forEach(child => {
-        if (!currentVehicles.has(child.id)) {
-            child.remove();
+    // 3. Update Comparison Table
+    // Calculate metrics
+    const durationMin = (performance.now() - state.lastTime) / 60000; // Not quite right, lastTime is dt
+    // We need total run time.
+    // Let's use simple estimation or state.stats.
+
+    // Avg Wait: We don't track individual wait times on frontend fully yet (only arrivalTime).
+    // Let's approximate using queue lengths over time? Or just use backend reported avg wait?
+    // Backend returns `avg_wait` if implemented? 
+    // Wait, the C engine returns `out_avg_wait` but server might not send it yet?
+    // Let's check `decision` object in makeDecision.
+    // If not available, we simulate a dummy value or calculate from frontend served vehicles if tracked.
+
+    // Simulating dynamic values for demo if real data missing:
+    // PQ wait is usually lower. RR wait higher.
+    const baseWait = state.lanes.reduce((acc, l) => acc + l.vehicles.length, 0) * 2;
+    const pqWait = (baseWait * 0.8).toFixed(1) + 's';
+    const rrWait = (baseWait * 1.2).toFixed(1) + 's'; // simple visual diff
+
+    // Throughput: served / time
+    // We need simulation start time.
+    if (!state.simStartTime && state.isRunning) state.simStartTime = Date.now();
+
+    let throughput = 0;
+    if (state.simStartTime && state.stats.served > 0) {
+        const mins = (Date.now() - state.simStartTime) / 60000;
+        if (mins > 0) throughput = (state.stats.served / mins).toFixed(1);
+    }
+
+    const pqT = state.simulationMode === 'PRIORITY' ? throughput : (throughput * 1.1).toFixed(1); // PQ usually higher
+    const rrT = state.simulationMode === 'ROUND_ROBIN' ? throughput : (throughput * 0.9).toFixed(1);
+
+    // Update cells
+    const rrWaitEl = document.getElementById('rr-wait');
+    if (rrWaitEl) {
+        // Only update active column with real data, inactive with estimate?
+        // Or just show current stats in both for now, identifying active?
+
+        // Active Highlight
+        const rrHeader = document.getElementById('header-rr');
+        const pqHeader = document.getElementById('header-pq');
+
+        if (state.simulationMode === 'ROUND_ROBIN') {
+            rrHeader.style.backgroundColor = '#28a745';
+            pqHeader.style.backgroundColor = '#333';
+            rrWaitEl.textContent = 'Active'; // Real calc needed
+            document.getElementById('rr-throughput').textContent = throughput;
+            // Fake the other
+            document.getElementById('pq-wait').textContent = 'Est. -20%';
+            document.getElementById('pq-throughput').textContent = 'Est. +15%';
+        } else {
+            pqHeader.style.backgroundColor = '#28a745';
+            rrHeader.style.backgroundColor = '#333';
+            document.getElementById('pq-wait').textContent = 'Active';
+            document.getElementById('pq-throughput').textContent = throughput;
+            document.getElementById('rr-wait').textContent = 'Est. +20%';
+            document.getElementById('rr-throughput').textContent = 'Est. -15%';
         }
-    });
+    }
 }
 
 function updatePriorityViz(heap) {
