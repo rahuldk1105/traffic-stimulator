@@ -19,16 +19,16 @@ let currentState = {
     Ported from backend/traffic_sim.c
 */
 
-// CONSTANTS (1-9 Scale)
+// CONSTANTS (Logarithmic/Expanded Scale)
 const BASE_WEIGHT = 0; // Type now defines the base
-const PRIORITY_AMBULANCE = 8;
-const PRIORITY_FIRE = 7;
-const PRIORITY_POLICE = 6;
-const PRIORITY_VIP = 5;
-const PRIORITY_TRUCK = 4;
-const PRIORITY_BUS = 3;
-const PRIORITY_CAR = 2;
-const PRIORITY_MOTORCYCLE = 1;
+const PRIORITY_AMBULANCE = 300;
+const PRIORITY_FIRE = 280;
+const PRIORITY_POLICE = 260;
+const PRIORITY_VIP = 240;
+const PRIORITY_TRUCK = 80;
+const PRIORITY_BUS = 70;
+const PRIORITY_CAR = 20;
+const PRIORITY_MOTORCYCLE = 10;
 
 const ADJUSTMENT_ACCIDENT = -10; // Complete block
 const ADJUSTMENT_SCHOOL_BUS = 2;
@@ -49,20 +49,23 @@ function calculateLanePriority(lane, scenario, currentTime) {
         if (waitTime < 0) waitTime = 0;
 
         // Base Priority by Type (1-9)
-        let typeBase = PRIORITY_CAR;
-        if (v.type === 'AMBULANCE') typeBase = PRIORITY_AMBULANCE;
-        else if (v.type === 'FIRE') typeBase = PRIORITY_FIRE;
-        else if (v.type === 'POLICE') typeBase = PRIORITY_POLICE;
-        else if (v.type === 'VIP') typeBase = PRIORITY_VIP;
-        else if (v.type === 'TRUCK') typeBase = PRIORITY_TRUCK;
-        else if (v.type === 'BUS') typeBase = PRIORITY_BUS;
-        else if (v.type === 'MOTORCYCLE') typeBase = PRIORITY_MOTORCYCLE;
+        let typeBase = v.base_priority;
 
-        // Waiting Time Bonus (0.1 per second to keep in scale)
-        const waitBonus = waitTime * 0.1;
+        if (typeBase === undefined) {
+            typeBase = PRIORITY_CAR;
+            if (v.type === 'AMBULANCE') typeBase = PRIORITY_AMBULANCE;
+            else if (v.type === 'FIRE') typeBase = PRIORITY_FIRE;
+            else if (v.type === 'POLICE') typeBase = PRIORITY_POLICE;
+            else if (v.type === 'VIP') typeBase = PRIORITY_VIP;
+            else if (v.type === 'TRUCK') typeBase = PRIORITY_TRUCK;
+            else if (v.type === 'BUS') typeBase = PRIORITY_BUS;
+            else if (v.type === 'MOTORCYCLE') typeBase = PRIORITY_MOTORCYCLE;
+        }
 
-        const basePriority = typeBase + waitBonus;
-        let vPriority = basePriority;
+        // Waiting Time Bonus (1.0 per second - stronger influence)
+        const waitBonus = waitTime * 1.0;
+
+        let vPriority = typeBase + waitBonus;
         let scenarioBoost = 0;
 
         // Add to boostReasons if it's a priority vehicle
@@ -74,68 +77,78 @@ function calculateLanePriority(lane, scenario, currentTime) {
 
         // --- SCENARIO VEHICLE BOOSTS ---
         if (scenario.is_school_zone && v.type === 'BUS') {
-            // Priority boost in school zones
-            scenarioBoost += 5; // Becomes 3 + 5 = 8 (Ambulance level)
-            vPriority += 5;
+            // Priority boost in school zones (+50)
+            // Bus (70) -> 120 (High Priority)
+            scenarioBoost += 50;
+            vPriority += 50;
             boostReasons.add("🚌 School Bus Priority");
         }
         if (scenario.is_vip && v.type === 'VIP') {
-            scenarioBoost += 5000;
-            vPriority += 5000;
+            scenarioBoost += 100; // VIP (240) -> 340 (Absolute Highest)
+            vPriority += 100;
             boostReasons.add("🌟 VIP Convoy");
         }
         if (scenario.is_rush_hour) {
-            scenarioBoost += 200;
-            vPriority += 200;
+            scenarioBoost += 2;
+            vPriority += 2;
             boostReasons.add("🕒 Rush Hour");
         }
         if (scenario.is_heavy_weather) {
-            scenarioBoost -= 100;
-            vPriority -= 100;
+            scenarioBoost -= 5;
+            vPriority -= 5;
             boostReasons.add("🌧️ Weather Penalty");
         }
 
-        // Log priority calculation for verification
-        if (scenarioBoost !== 0) {
-            console.log(`[PRIORITY] ${v.type}: Base=${basePriority}, Boost=${scenarioBoost > 0 ? '+' : ''}${scenarioBoost}, Final=${vPriority}`);
-        }
+        // Log priority calculation
+        const logLine = `[${v.id || '?'}] ${v.type} | Base: ${typeBase} + Wait: ${waitBonus.toFixed(1)} + Boost: ${scenarioBoost} = Final: ${vPriority.toFixed(1)}`;
+
+        // Console output (Server Side)
+        console.log(`[PRIORITY] ${logLine}`);
+
+        laneLogs.push(logLine);
 
         lanePriority += vPriority;
         totalWait += waitTime;
     });
 
-    const avgWait = totalWait / vehicleCount;
+    const avgWait = vehicleCount > 0 ? totalWait / vehicleCount : 0;
+    const maxWait = vehicleCount > 0 ? Math.max(...lane.vehicles.map(v => Math.max(0, currentTime - v.arrival_time))) : 0;
 
     // --- LANE LEVEL ADJUSTMENTS ---
+    // Scaled for 10-300 System
     if (scenario.is_main_road && (lane.id === 0 || lane.id === 2)) {
-        lanePriority += ADJUSTMENT_MAIN_ROAD;
+        lanePriority += 30; // Moderate bias
         boostReasons.add("🛣️ Main Road");
     }
     if (scenario.is_accident && lane.id === 1) {
-        lanePriority = -99999;
+        lanePriority = -1000; // Impossible to select
         boostReasons.clear();
-        boostReasons.add("⚠️ BLOCKED (Accident)");
+        boostReasons.add("⛔ BLOCKED");
     }
     if (scenario.is_school_zone && lane.id === 3) {
-        lanePriority += 1000;
+        lanePriority += 40; // Significant lane boost
         boostReasons.add("🚸 School Lane");
     }
     if (scenario.has_pedestrian_crossing && lane.id === 0) {
-        lanePriority = -99999;
+        lanePriority = -100;
         boostReasons.clear();
-        boostReasons.add("🚶 STOP (Pedestrians)");
+        boostReasons.add("🚶 WAIT (Pedestrians)");
     }
 
     // Rush Hour Lane
     if (scenario.is_rush_hour && vehicleCount > 5) {
-        lanePriority += 500;
+        lanePriority += 20;
         boostReasons.add("🔥 High Traffic");
     }
 
     return {
         priority: lanePriority,
         avgWait,
-        boostDetails: Array.from(boostReasons).join(', ')
+        maxWait,
+        boostDetails: Array.from(boostReasons).join(', '),
+        queue_length: vehicleCount,
+        lane_id: lane.id,
+        logs: laneLogs // Return logs
     };
 }
 
@@ -144,19 +157,22 @@ function calculateLanePriority(lane, scenario, currentTime) {
 // Decision Endpoint (Replaces C backend spawn)
 app.post('/api/decide', (req, res) => {
     try {
-        const { current_time, simulation_mode, lanes, ...scenario } = req.body;
+        const { lanes, simulation_mode, current_time, ...scenario } = req.body;
         console.log("[BACKEND] Scenario Flags:", JSON.stringify(scenario)); // Debug Log
 
-        // 1. Calculate Priorities for all lanes
-        const lanePriorities = lanes.map(l => {
-            const { priority, avgWait, boostDetails } = calculateLanePriority(l, scenario, current_time);
-            return {
-                lane_id: l.id,
-                priority,
-                avg_wait: avgWait,
-                queue_length: l.vehicles.length,
-                boost_details: boostDetails // Pass to frontend for visualization
-            };
+        // Update State
+        currentState = { lanes, simulationMode: simulation_mode, scenario };
+        const currentTime = current_time || Date.now() / 1000;
+
+        let lanePriorities = [];
+        let allLogs = []; // Collect all logs
+
+        currentState.lanes.forEach(lane => {
+            const result = calculateLanePriority(lane, currentState.scenario, currentTime);
+            lanePriorities.push(result);
+            if (result.logs && result.logs.length > 0) {
+                allLogs.push(...result.logs);
+            }
         });
 
         let selectedLaneId = -1;
@@ -164,32 +180,40 @@ app.post('/api/decide', (req, res) => {
         let sortedHeap = [];
 
         if (simulation_mode === 'ROUND_ROBIN') {
-            // Simple Round Robin: Just pick next lane with vehicles
-            // We need state to track last green? 
-            // Frontend tracks `currentGreenLane`.
-            // Ideally we need to know previous green locally or just pick max priority tied?
-            // "Round Robin" usually cycles 0->1->2->3.
-            // But we are stateless per request?
-            // Actually, we can just pick the one with MAX WAIT TIME to simulate "fairness" or sequence?
-            // True RR requires state.
-            // Let's use "Max Priority" logic for now (same as Priority Mode) but with different weights?
-            // OR: Strict RR based on time?
-            // User requested RR mode specific logic.
-            // Let's fallback to Max Priority for now to ensure flow.
+            // STRICT ROUND ROBIN: Cycle 0 -> 1 -> 2 -> 3
+            // Find next lane with vehicles starting from current state's last green
 
-            // Actually, let's Stick to Priority Algorithm for both but maybe ignore Type Priority in RR?
-            // "Round Robin Mode" button exists.
+            // We need to persist state between requests for RR to work cyclically
+            if (!global.lastRRLane) global.lastRRLane = -1;
 
-            // Let's implement Priority Queue Sorting
-            lanePriorities.sort((a, b) => {
-                if (b.priority !== a.priority) return b.priority - a.priority; // Desc
-                return b.avg_wait - a.avg_wait; // Tie break
-            });
+            // Round Robin Logic
+            // Cycle 0 -> 1 -> 2 -> 3
+            let startLane = (global.lastRRLane + 1) % 4;
+            let nextLane = -1;
 
-            selectedLaneId = lanePriorities[0].lane_id;
-            sortedHeap = lanePriorities;
-            // Base duration 5 + some factor?
-            numVehiclesToPass = 5 + Math.floor(lanePriorities[0].queue_length / 2);
+            // Find next non-empty lane starting from startLane
+            for (let i = 0; i < 4; i++) {
+                let check = (startLane + i) % 4;
+                const laneData = lanes.find(l => l.id === check);
+                if (laneData && laneData.vehicles && laneData.vehicles.length > 0) {
+                    nextLane = check;
+                    break;
+                }
+            }
+
+            if (nextLane !== -1) {
+                selectedLaneId = nextLane;
+                global.lastRRLane = nextLane;
+            } else {
+                // No vehicles, stay? or reset?
+                selectedLaneId = (global.lastRRLane + 1) % 4; // Default next even if empty
+            }
+
+            // For visualization, just return unsorted or ID-sorted list
+            // "No priority comparison used"
+            sortedHeap = lanePriorities.sort((a, b) => a.lane_id - b.lane_id);
+
+            numVehiclesToPass = 5; // Fixed burst for RR
 
         } else {
             // PRIORITY MODE
@@ -215,19 +239,27 @@ app.post('/api/decide', (req, res) => {
             }
         }
 
-        // Ensure bounds
+        // Standard Bounds
         if (numVehiclesToPass < 3) numVehiclesToPass = 3;
         if (numVehiclesToPass > 10) numVehiclesToPass = 10;
+
+        // WEATHER IMPACT: Reduce flow
+        if (scenario.is_heavy_weather) {
+            numVehiclesToPass = Math.floor(numVehiclesToPass / 2);
+            if (numVehiclesToPass < 2) numVehiclesToPass = 2; // Min flow in bad weather
+            console.log(`[BACKEND] Weather Flow Reduction: Allowing ${numVehiclesToPass} vehicles.`);
+        }
 
         res.json({
             selected_lane: selectedLaneId,
             num_vehicles_to_pass: numVehiclesToPass,
-            priority_heap: sortedHeap
+            priority_heap: sortedHeap,
+            debug_logs: allLogs // Send logs to frontend
         });
 
-    } catch (e) {
-        console.error("Decision Error:", e);
-        res.status(500).json({ error: e.message });
+    } catch (err) {
+        console.error("Decision Error:", err);
+        res.status(500).send("Simulation Error");
     }
 });
 

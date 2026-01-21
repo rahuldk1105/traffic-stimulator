@@ -24,7 +24,38 @@ const CONFIG = {
     HASH_PRIME: 7,
 
     // Limits
-    MAX_VEHICLES_LIMIT: 40
+    MAX_VEHICLES_LIMIT: 20
+};
+
+const SCENARIO_INFO = {
+    'weather': {
+        title: "⚠️ WEATHER IMPACT",
+        desc: "<strong>Slower Traffic & Longer Signals</strong><br>Vehicles move 50% slower due to rain/snow. Signal duration is increased to allow safe crossing. Throughput is halved."
+    },
+    'accident': {
+        title: "⛔ ACCIDENT ALERT",
+        desc: "<strong>Lane Blocked</strong><br>An accident has occurred in the East Lane. Vehicles are completely blocked and cannot pass until the accident is cleared."
+    },
+    'pedestrian': {
+        title: "🚶 PEDESTRIAN CROSSING",
+        desc: "<strong>Temporary Stop</strong><br>All vehicles in the North Lane must stop for 10 seconds to allow pedestrians to cross safely. Traffic resumes automatically."
+    },
+    'school_zone': {
+        title: "🚸 SCHOOL ZONE",
+        desc: "<strong>Bus Priority</strong><br>School buses in the West Lane get a massive priority boost (+5) to ensure students arrive on time."
+    },
+    'rush_hour': {
+        title: "🕒 RUSH HOUR",
+        desc: "<strong>High Traffic Volume</strong><br>Traffic density increases. Lanes with >5 vehicles get a priority boost to flush queues faster."
+    },
+    'vip': {
+        title: "🌟 VIP CONVOY",
+        desc: "<strong>Absolute Priority</strong><br>VIP vehicles bypass all other logic. The lane with a VIP gets immediate green light."
+    },
+    'main_road': {
+        title: "🛣️ MAIN ROAD PRIORITY",
+        desc: "<strong>Increased Lane Priority</strong><br>Vehicles on the Main Road (North/South) get a constant priority boost (+3) to maintain flow."
+    }
 };
 
 // ==================== STATE MANAGEMENT ====================
@@ -108,6 +139,7 @@ function initApp() {
                         <div class="status-bar-mini" style="margin-left: 20px; display: inline-flex; gap: 15px; font-size: 0.9rem;">
                             <div>Served: <span id="vehicles-served">0</span></div>
                             <div>Switches: <span id="signal-switches">0</span></div>
+                            <div id="timer-container" style="display:none; color: #00dbff;">Time: <span id="simulation-time">0.0s</span></div>
                         </div>
                     </div>
 
@@ -242,6 +274,23 @@ function initApp() {
 
                     <!-- COMPARISON TABLES -->
                     <div class="tables-container">
+                        
+                        <!-- LIVE VEHICLE INSPECTOR -->
+                        <div class="table-section" id="vehicle-inspector" style="border: 1px solid #444; background: #222; margin-bottom: 20px; display: none;">
+                            <h2 style="color: #00dbff; border-bottom: 1px solid #444; padding-bottom: 5px;">LIVE PRIORITY CALCULATION</h2>
+                            <div id="inspector-content" style="padding: 10px; font-family: monospace; font-size: 0.9rem; color: #eee;">
+                                Hover over a vehicle...
+                            </div>
+                        </div>
+
+                        <!-- SCENARIO INFO BOX -->
+                        <div class="table-section" id="scenario-info-box" style="border: 1px solid #ccaa00; background: #fffbe6; margin-bottom: 20px; display: none;">
+                            <h2 id="scenario-info-title" style="color: #997f00; border-bottom: 1px solid #e6d580; padding-bottom: 5px;">⚠️ SCENARIO INFO</h2>
+                            <div id="scenario-info-desc" style="padding: 10px; font-size: 0.9rem; color: #222; line-height: 1.4;">
+                                Description here...
+                            </div>
+                        </div>
+
                         <div class="table-section">
                             <h2>PRIORITY QUEUE STATUS</h2>
                             <table id="priority-queue-table">
@@ -250,6 +299,7 @@ function initApp() {
                                         <th>Rk</th>
                                         <th>Lane</th>
                                         <th>Prio</th>
+                                        <th>Wait</th>
                                         <th>Q</th>
                                         <th>Boosts</th>
                                     </tr>
@@ -274,27 +324,27 @@ function initApp() {
                                         <td id="rr-wait">-</td>
                                         <td id="pq-wait">-</td>
                                     </tr>
-                                    <tr style="font-size: 0.8em; color: #888;">
+                                    <tr style="font-size: 0.8em; color: #333;">
                                         <td>- Car</td>
                                         <td id="rr-wait-NORMAL">-</td>
                                         <td id="pq-wait-NORMAL">-</td>
                                     </tr>
-                                    <tr style="font-size: 0.8em; color: #888;">
+                                    <tr style="font-size: 0.8em; color: #333;">
                                         <td>- Bus</td>
                                         <td id="rr-wait-BUS">-</td>
                                         <td id="pq-wait-BUS">-</td>
                                     </tr>
-                                    <tr style="font-size: 0.8em; color: #888;">
+                                    <tr style="font-size: 0.8em; color: #333;">
                                         <td>- Truck</td>
                                         <td id="rr-wait-TRUCK">-</td>
                                         <td id="pq-wait-TRUCK">-</td>
                                     </tr>
-                                    <tr style="font-size: 0.8em; color: #888;">
+                                    <tr style="font-size: 0.8em; color: #333;">
                                         <td>- Bike</td>
                                         <td id="rr-wait-MOTORCYCLE">-</td>
                                         <td id="pq-wait-MOTORCYCLE">-</td>
                                     </tr>
-                                    <tr style="font-size: 0.8em; color: #888;">
+                                    <tr style="font-size: 0.8em; color: #333;">
                                         <td>- Emergency</td>
                                         <td id="rr-wait-EMG">-</td>
                                         <td id="pq-wait-EMG">-</td>
@@ -308,6 +358,12 @@ function initApp() {
                             </table>
                         </div>
 
+                        <!-- DECISION LOGS PANEL -->
+                        <div class="table-section">
+                            <h2>DECISION LOGS</h2>
+                            <div id="decision-logs-content" style="height: 150px; overflow-y: auto; background: #111; border: 1px solid #444; padding: 8px; font-family: 'Courier New', monospace; font-size: 0.75rem; color: #0f0; white-space: pre-wrap;">Initializing logs...</div>
+                        </div>
+
                         <!-- LIVE CHART -->
                         <div class="table-section" style="margin-top: 20px;">
                             <h2>LIVE ANALYTICS (Wait Time)</h2>
@@ -317,28 +373,30 @@ function initApp() {
                         </div>
 
                         <!-- Static Priority Reference Table -->
+                        <!-- Base Priority Reference Table -->
                         <div class="table-section" style="margin-top: 20px;">
                             <h2>Base Priority Reference</h2>
-                            <table style="width:100%; font-size: 0.85rem; border-collapse: collapse; color: #ccc;">
+                            <table style="width:100%; font-size: 0.85rem; border-collapse: collapse; color: #000;">
                                 <thead>
-                                    <tr style="border-bottom: 1px solid #555; text-align: left;">
-                                        <th style="padding: 4px;">Type</th>
-                                        <th style="padding: 4px;">Base Value</th>
+                                    <tr style="border-bottom: 2px solid #333; text-align: left;">
+                                        <th style="padding: 4px;">Vehicle Type</th>
+                                        <th style="padding: 4px;">Base Priority</th>
+                                        <th style="padding: 4px;">Order</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚑 Ambulance</td><td style="font-weight:bold;">8</td></tr>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚒 Fire Truck</td><td style="font-weight:bold;">7</td></tr>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚓 Police Car</td><td style="font-weight:bold;">6</td></tr>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🌟 VIP Convoy</td><td style="font-weight:bold;">5</td></tr>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚚 Truck</td><td style="font-weight:bold;">4</td></tr>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚌 Public Bus</td><td style="font-weight:bold;">3</td></tr>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🚗 Standard Car</td><td style="font-weight:bold;">2</td></tr>
-                                    <tr style="border-bottom: 1px solid #333;"><td style="padding: 4px;">🏍️ Motorcycle</td><td style="font-weight:bold;">1</td></tr>
+                                    <tr style="border-bottom: 1px solid #ddd;"><td style="padding: 4px;">🏍️ Motorcycle (Bike)</td><td style="font-weight:bold;">10</td><td style="color: #666;">Lowest</td></tr>
+                                    <tr style="border-bottom: 1px solid #ddd;"><td style="padding: 4px;">🚗 Standard Car</td><td style="font-weight:bold;">20</td><td></td></tr>
+                                    <tr style="border-bottom: 1px solid #ddd;"><td style="padding: 4px;">🚌 Public Bus</td><td style="font-weight:bold;">70</td><td></td></tr>
+                                    <tr style="border-bottom: 1px solid #ddd;"><td style="padding: 4px;">🚚 Truck</td><td style="font-weight:bold;">80</td><td></td></tr>
+                                    <tr style="border-bottom: 1px solid #ddd;"><td style="padding: 4px;">🌟 VIP Convoy</td><td style="font-weight:bold;">240</td><td></td></tr>
+                                    <tr style="border-bottom: 1px solid #ddd;"><td style="padding: 4px;">🚓 Police Car</td><td style="font-weight:bold;">260</td><td></td></tr>
+                                    <tr style="border-bottom: 1px solid #ddd;"><td style="padding: 4px;">🚒 Fire Truck</td><td style="font-weight:bold;">280</td><td></td></tr>
+                                    <tr style="border-bottom: 1px solid #ddd;"><td style="padding: 4px;">🚑 Ambulance</td><td style="font-weight:bold;">300</td><td style="color: #007bff; font-weight:bold;">Highest</td></tr>
                                 </tbody>
                             </table>
-                            <p style="font-size: 0.75rem; color: #888; margin-top: 8px;">
-                                * Formula: Priority = Base + (Wait Time × 0.1) + Scenario Boost
+                            <p style="font-size: 0.75rem; color: #555; margin-top: 8px;">
+                                * Formula: Priority = Base + (Wait Time × 1.0) + Scenario Boost
                             </p>
                         </div>
 
@@ -383,25 +441,25 @@ function initControls() {
     const btnInject = document.getElementById('btn-inject');
     if (btnInject) {
         btnInject.onclick = () => {
-            const lane = parseInt(document.getElementById('inject-lane').value);
+            const laneId = parseInt(document.getElementById('inject-lane').value);
             const type = document.getElementById('inject-type').value;
             const dir = document.getElementById('inject-dir').value;
             const customId = document.getElementById('inject-id').value.trim() || null;
             const quantity = parseInt(document.getElementById('inject-quantity').value) || 1;
 
-            // Add multiple vehicles
+            const laneNames = ["North", "East", "South", "West"];
             const types = ['NORMAL', 'TRUCK', 'MOTORCYCLE', 'AMBULANCE', 'FIRE', 'POLICE', 'BUS', 'VIP'];
 
             for (let i = 0; i < quantity; i++) {
-                // Determine type
                 const vType = (type === 'RANDOM') ? types[Math.floor(Math.random() * types.length)] : type;
-
-                // Only use custom ID for first vehicle if specified
                 const vehicleId = (customId && i === 0) ? customId : null;
-                addVehicle(lane, vType, dir, vehicleId);
+                addVehicle(laneId, vType, dir, vehicleId);
             }
 
-            console.log(`[UI] Added ${quantity} vehicle(s) of type ${type} to Lane ${lane}`);
+            console.log(`[UI] Injecting ${quantity} vehicle(s) [Type: ${type}] into ${laneNames[laneId]} Lane`);
+
+            // Force Priority Table Update
+            if (!state.waitingForDecision) makeDecision();
         };
     }
 
@@ -418,6 +476,41 @@ function initControls() {
     // Hash Demo Button
     const btnHashDemo = document.getElementById('btn-hash-demo');
     if (btnHashDemo) btnHashDemo.onclick = runHashCollisionDemo;
+
+    // Vehicle Popover / Inspector Logic
+    const vehicleLayer = document.getElementById('vehicle-layer');
+    if (vehicleLayer) {
+        vehicleLayer.addEventListener('mouseover', (e) => {
+            const target = e.target.closest('.vehicle');
+            if (target) {
+                // Find Vehicle Object
+                const vid = target.id;
+                let foundV = null;
+                state.lanes.some(l => {
+                    const v = l.vehicles.find(veh => veh.id === vid);
+                    if (v) { foundV = v; return true; }
+                    return false;
+                });
+
+                if (foundV) {
+                    state.hoveredVehicle = foundV;
+                    updateVehicleInspector(foundV);
+                    target.style.border = "2px solid #00dbff";
+                    target.style.zIndex = "100";
+                }
+            }
+        });
+
+        vehicleLayer.addEventListener('mouseout', (e) => {
+            const target = e.target.closest('.vehicle');
+            if (target) {
+                state.hoveredVehicle = null;
+                updateVehicleInspector(null);
+                target.style.border = "none";
+                target.style.zIndex = "";
+            }
+        });
+    }
 
     // Add Verification Button logic to help verify
     console.log("[HASH] Verification Suite Ready. Run 'runVerificationSuite()' in console to verify math.");
@@ -548,15 +641,23 @@ function insertToHashTable(vid) {
     // Detailed Log
     console.log(`[HASH] Inserting ${vid} (Key=${key}) → h1=${h1}, h2=${h2}`);
 
+    // Probe 0 is the initial attempt at h1 + 0*h2
+    if (state.hashTable[idx] !== null) {
+        console.log(`[HASH] Collision at Initial Index ${idx} (Occupied by ${state.hashTable[idx].vid})`);
+    }
+
     while (state.hashTable[idx] !== null && i < m) {
-        console.log(`[HASH] Probe ${i + 1}: Index ${idx} occupied by ${state.hashTable[idx].vid}. Collision!`);
-        i++;
-        idx = (h1 + i * h2) % m;
+        i++; // Increment probe count
+        idx = (h1 + i * h2) % m; // Calculate NEXT probe index
+        console.log(`[HASH] Probe #${i}: Trying Index ${idx}... ${state.hashTable[idx] ? 'OCCUPIED' : 'FREE'}`);
     }
 
     if (i < m) {
+        // Store i+1 effectively because 0th probe was the first attempt
+        // Actually, let's just store 'i' as number of Extra Probes needed, or 'i+1' as Attempt Count
+        // Requirement: "Log each probe (i=1..)"
         state.hashTable[idx] = { vid, key, h1, h2, probes: i + 1, finalIdx: idx };
-        console.log(`[HASH] SUCCESS: ${vid} inserted at Index ${idx} after ${i + 1} probes.`);
+        console.log(`[HASH] SUCCESS: ${vid} inserted at Index ${idx}. Total Attempts: ${i + 1}`);
     } else {
         console.log(`[HASH] FAIL: Table Full! Could not insert ${vid}`);
     }
@@ -592,6 +693,42 @@ function renderHashView() {
     });
 }
 
+function updateScenarioInfoVisibility() {
+    const box = document.getElementById('scenario-info-box');
+    const titleEl = document.getElementById('scenario-info-title');
+    const descEl = document.getElementById('scenario-info-desc');
+
+    if (!box) return;
+
+    // Find active scenario
+    let activeKey = null;
+    const scenarioMap = {
+        'main_road': 'is_main_road',
+        'accident': 'is_accident',
+        'school_zone': 'is_school_zone',
+        'weather': 'is_heavy_weather',
+        'rush_hour': 'is_rush_hour',
+        'pedestrian': 'has_pedestrian_crossing',
+        'vip': 'is_vip'
+    };
+
+    // Reverse lookup or just iterate active set?
+    // state.activeScenarios has the keys like 'weather', 'accident'
+    if (state.activeScenarios.size > 0) {
+        activeKey = state.activeScenarios.values().next().value;
+    }
+
+    const info = SCENARIO_INFO[activeKey];
+
+    if (info) {
+        titleEl.innerHTML = info.title;
+        descEl.innerHTML = info.desc;
+        box.style.display = 'block';
+    } else {
+        box.style.display = 'none';
+    }
+}
+
 
 function toggleScenario(scenario, btn) {
     const isActive = state.activeScenarios.has(scenario);
@@ -615,6 +752,9 @@ function toggleScenario(scenario, btn) {
     };
     Object.values(scenarioMap).forEach(flag => state.scenario[flag] = false);
 
+    // Update Scenario Info Visibility (Reset)
+    updateScenarioInfoVisibility();
+
     if (!isActive) {
         // Activate NEW scenario
         state.activeScenarios.add(scenario);
@@ -627,6 +767,9 @@ function toggleScenario(scenario, btn) {
             console.log(`[SCENARIO] ${scenario.toUpperCase()} activated (${flagName}=true)`);
         }
 
+        // Update Scenario Info Visibility
+        updateScenarioInfoVisibility();
+
         // Update Visuals
         updateScenarioVisuals(scenario, true);
 
@@ -637,8 +780,31 @@ function toggleScenario(scenario, btn) {
         console.log(`[SCENARIO] Triggering priority recalculation...`);
         if (!state.waitingForDecision) makeDecision();
 
+        // PEDESTRIAN TIMER LOGIC
+        if (scenario === 'pedestrian') {
+            if (state.pedestrianInterval) clearInterval(state.pedestrianInterval);
+            let timeLeft = 10;
+            const marker = document.getElementById('marker-north');
+
+            state.pedestrianInterval = setInterval(() => {
+                timeLeft--;
+                if (marker) marker.textContent = `🚶 PEDESTRIAN XING (${timeLeft}s)`;
+
+                if (timeLeft <= 0) {
+                    clearInterval(state.pedestrianInterval);
+                    toggleScenario('pedestrian', btn); // Deactivate
+                }
+            }, 1000);
+        }
+
     } else {
         console.log(`[SCENARIO] All scenarios deactivated`);
+
+        // Clear Timer if disabling manually
+        if (scenario === 'pedestrian' && state.pedestrianInterval) {
+            clearInterval(state.pedestrianInterval);
+        }
+
         // Update to clear effects
         if (!state.waitingForDecision) makeDecision();
     }
@@ -651,13 +817,13 @@ function updateScenarioVisuals(scenario, isActive) {
             { id: 'marker-south', text: 'MAIN ROAD ⬇️' }
         ],
         'accident': [
-            { id: 'marker-east', text: '⚠️ ACCIDENT (LANE BLOCKED)' }
+            { id: 'marker-east', text: '⛔ LANE BLOCKED ⛔', style: 'background: rgba(255,0,0,0.8);' }
         ],
         'school_zone': [
             { id: 'marker-west', text: '🚸 SCHOOL ZONE' }
         ],
         'pedestrian': [
-            { id: 'marker-north', text: '🚶 PEDESTRIAN XING' }
+            { id: 'marker-north', text: '🚶 PEDESTRIAN XING (10s)', style: 'background: rgba(255,165,0,0.9); font-weight:bold;' }
         ],
         'rush_hour': [
             { id: 'marker-center', text: '🕒 RUSH HOUR' }
@@ -681,9 +847,11 @@ function updateScenarioVisuals(scenario, isActive) {
                 if (isActive) {
                     el.textContent = cfg.text;
                     el.classList.add('active');
+                    if (cfg.style) el.style.cssText = cfg.style;
                     if (scenario === 'weather') document.querySelector('.main-content').style.filter = 'brightness(0.7) contrast(1.2)';
                 } else {
                     el.classList.remove('active');
+                    el.style.cssText = ''; // Reset custom styles
                     if (scenario === 'weather') document.querySelector('.main-content').style.filter = '';
                 }
             }
@@ -743,6 +911,14 @@ function startSimulation() {
     // GUARD: Prevent multiple loops
     if (state.isRunning) return;
 
+    console.log("[SIMULATION] Starting...");
+
+    // Prevent double loops
+    if (state.animationFrameId) {
+        cancelAnimationFrame(state.animationFrameId);
+        state.animationFrameId = null;
+    }
+
     state.isRunning = true;
     state.lastTime = performance.now();
 
@@ -752,9 +928,10 @@ function startSimulation() {
     state.vehiclesToPass = 0;
     state.waitingForDecision = false;
 
-    // Reset Limits & Counters
-    state.activeVehicleCount = 0;
-    state.totalSpawned = 0;
+    // Reset Limits & Counters, taking into account PRE-EXISTING vehicles (Manual Setup)
+    state.activeVehicleCount = state.lanes.reduce((sum, lane) => sum + lane.vehicles.length, 0);
+    state.totalSpawned = state.activeVehicleCount;
+
     state.totalProcessedForStop = 0;
     state.stats.served = 0;
     state.stats.switches = 0;
@@ -762,8 +939,8 @@ function startSimulation() {
     state.metrics['ROUND_ROBIN'] = { totalWait: 0, served: 0, typeData: {} };
     state.metrics['PRIORITY'] = { totalWait: 0, served: 0, typeData: {} };
 
-    // Clear Lanes
-    state.lanes.forEach(l => l.vehicles = []);
+    // Do NOT clear lanes if we have vehicles (Manual Setup Mode)
+    // state.lanes.forEach(l => l.vehicles = []);
 
     // Generate Initial Traffic
     generateInitialTraffic();
@@ -873,10 +1050,23 @@ function addVehicle(laneId, type, direction = 'STRAIGHT', customId = null) {
     // Hash Table Insert (DSA Demo)
     insertToHashTable(id);
 
+    // Priority Mapping
+    const priorityMap = {
+        'MOTORCYCLE': 10,
+        'NORMAL': 20,
+        'BUS': 70,
+        'TRUCK': 80,
+        'VIP': 240,
+        'POLICE': 260,
+        'FIRE': 280,
+        'AMBULANCE': 300
+    };
+
     lane.vehicles.push({
         id: id,
         type: type,
         direction: direction,
+        basePriority: priorityMap[type] || 2, // Fallback to 2 (Normal)
 
         // Dynamic Position
         x: targetX, // Instant spawn in queue
@@ -909,7 +1099,10 @@ function addVehicle(laneId, type, direction = 'STRAIGHT', customId = null) {
 
 // ==================== GAME LOOP ====================
 function gameLoop(timestamp) {
-    if (!state.isRunning) return;
+    if (!state.isRunning) {
+        state.animationFrameId = null;
+        return;
+    }
 
     if (!state.lastTime) state.lastTime = timestamp;
     const dt = timestamp - state.lastTime;
@@ -918,7 +1111,7 @@ function gameLoop(timestamp) {
     update(dt, timestamp);
     render();
 
-    requestAnimationFrame(gameLoop);
+    state.animationFrameId = requestAnimationFrame(gameLoop);
 }
 
 function update(dt, currentTime) {
@@ -951,12 +1144,17 @@ function update(dt, currentTime) {
                 }
             }
             else if (v.state === 'exiting') {
+                const currentMoveDuration = state.scenario.is_heavy_weather ?
+                    CONFIG.VEHICLE_MOVE_DURATION * 1.8 :
+                    CONFIG.VEHICLE_MOVE_DURATION;
+
                 const elapsed = currentTime - v.moveStartTime;
-                let rawT = elapsed / CONFIG.VEHICLE_MOVE_DURATION;
+                let rawT = elapsed / currentMoveDuration;
 
                 if (rawT >= 1) {
                     // Metrics
-                    const waitTime = (currentTime - v.arrivalTime) / 1000;
+                    // FIX: Use Date.now() to match v.arrivalTime (Epoch)
+                    const waitTime = (Date.now() - v.arrivalTime) / 1000;
                     const modeMetrics = state.metrics[state.simulationMode];
                     modeMetrics.totalWait += waitTime;
                     modeMetrics.served++;
@@ -1157,7 +1355,11 @@ async function makeDecision() {
             id: l.id,
             vehicles: l.vehicles
                 .filter(v => v.state === 'queued' || v.state === 'shifting')
-                .map(v => ({ type: v.type, arrival_time: Math.floor(v.arrivalTime / 1000) }))
+                .map(v => ({
+                    type: v.type,
+                    arrival_time: Math.floor(v.arrivalTime / 1000),
+                    base_priority: v.basePriority
+                }))
         }))
     };
 
@@ -1189,17 +1391,30 @@ async function makeDecision() {
             if (decision.priority_heap) {
                 updatePriorityViz(decision.priority_heap);
             }
+
+            // Update Logs Panel
+            if (decision.debug_logs) {
+                const logBox = document.getElementById('decision-logs-content');
+                if (logBox) {
+                    const timestamp = new Date().toLocaleTimeString();
+                    const formattedLogs = decision.debug_logs.map(L => `[${timestamp}] ${L}`).join('\n');
+
+                    // console.log("[BACKEND LOGS]", decision.debug_logs); // Browser Console
+
+                    // Append
+                    logBox.textContent = formattedLogs + "\n--------------------------------------------------\n" + logBox.textContent;
+
+                    // Truncate if too long (approx 2000 chars)
+                    if (logBox.textContent.length > 5000) {
+                        logBox.textContent = logBox.textContent.substring(0, 5000) + "...";
+                    }
+                }
+            }
         }
     } catch (e) {
         // console.error("[FRONTEND] Backend decision failed/timeout", e); // Reduced spam
     } finally {
         state.waitingForDecision = false;
-        state.signalTimer = 0; // Reset timer immediately to allow next cycle? 
-        // No, `state.signalTimer` logic in `update`:
-        // if (!waiting && timer <= 0) makeDecision.
-        // If we reset to 0 here, it will loop `makeDecision` infinitely!
-        // We MUST set it to CONFIG.SIGNAL_DURATION!
-        // Wait, previously `state.signalTimer = 0` was in finally?
         // Line 866: `state.signalTimer = 0;`
         // In `startSimulation`: `state.signalTimer = CONFIG.SIGNAL_DURATION;`
         // In `update`: `state.signalTimer -= dt`.
@@ -1224,6 +1439,22 @@ function render() {
     const switchEl = document.getElementById('signal-switches');
     if (switchEl) switchEl.textContent = state.stats.switches;
 
+    // Time Update
+    const timerContainer = document.getElementById('timer-container');
+    const timeEl = document.getElementById('simulation-time');
+    if (timerContainer && timeEl) {
+        if (state.isRunning) {
+            timerContainer.style.display = 'block';
+            const elapsed = (Date.now() - state.simStartTime) / 1000;
+            timeEl.textContent = elapsed.toFixed(1) + 's';
+        } else if (state.simStartTime && state.simStartTime > 0) {
+            // Show final time if stopped but has run
+            timerContainer.style.display = 'block';
+        } else {
+            timerContainer.style.display = 'none';
+        }
+    }
+
     // We build the visual state inside #intersection-container
     let container = document.getElementById('intersection-container');
     if (!container) return;
@@ -1240,6 +1471,11 @@ function render() {
                 sig.classList.add('red');
             }
         }
+    }
+
+    // Live update inspector if hovering
+    if (state.hoveredVehicle) {
+        updateVehicleInspector(state.hoveredVehicle);
     }
 
     // 2. Render Vehicles
@@ -1370,10 +1606,25 @@ function updatePriorityViz(heap) {
             boostText = [...new Set(reasons)].join(', ');
         }
 
+        const prio = Math.round(item.priority);
+        let prioStyle = "padding: 2px 6px; border-radius: 4px; display: inline-block; min-width: 35px; text-align: center; font-weight: bold;";
+
+        if (prio >= 100) {
+            // Triple Digit (High Stress / Emergency)
+            prioStyle += "border: 1px solid #ff4444; color: #ff4444; background: rgba(255, 68, 68, 0.1); box-shadow: 0 0 5px rgba(255, 68, 68, 0.3);";
+        } else if (prio >= 10) {
+            // Double Digit (Standard Traffic)
+            prioStyle += "border: 1px solid #ffeb3b; color: #ffeb3b; background: rgba(255, 235, 59, 0.1);";
+        } else {
+            // Single Digit (Low Priority - e.g. blocked or very low)
+            prioStyle += "border: 1px solid #666; color: #888; background: rgba(100, 100, 100, 0.1);";
+        }
+
         row.innerHTML = `
             <td>${idx + 1}</td>
             <td>L${item.lane_id}</td>
-            <td>${Math.round(item.priority)}</td>
+            <td><span style="${prioStyle}">${prio}</span></td>
+            <td style="color:#aaa;">${item.max_wait ? item.max_wait.toFixed(0) + 's' : '-'}</td>
             <td>${item.queue_length || item.vehicle_count || 0}</td>
             <td style="font-size:0.75rem; color:#ffd700; max-width: 140px;">${boostText || '-'}</td>
         `;
@@ -1438,4 +1689,68 @@ function updateAnalyticsChart() {
         analyticsChart.data.datasets[0].data.shift();
     }
     analyticsChart.update();
+}
+
+// ==================== INSPECTOR LOGIC ====================
+function updateVehicleInspector(v) {
+    const inspector = document.getElementById('vehicle-inspector');
+    const content = document.getElementById('inspector-content');
+    if (!inspector || !content) return;
+
+    if (!v) {
+        inspector.style.display = 'none';
+        return;
+    }
+    inspector.style.display = 'block';
+
+    // 1. Calculate Priority Components (Client-Side Mirror of Server Logic)
+
+    // Base
+    const typeBase = v.basePriority || 2;
+
+    // Wait
+    const nowSec = Date.now() / 1000;
+    const arrSec = v.arrivalTime / 1000;
+    const waitTime = Math.max(0, nowSec - arrSec);
+    const waitBonus = waitTime * 0.1;
+
+    // Boosts
+    let boost = 0;
+    let boostText = [];
+    const sc = state.scenario;
+
+    // Vehicle Type Boosts/Penalties
+    if (sc.is_school_zone && v.type === 'BUS') { boost += 5; boostText.push("School Bus(+5)"); }
+    if (sc.is_vip && v.type === 'VIP') { boost += 5; boostText.push("VIP Mode(+5)"); }
+    if (sc.is_rush_hour) { boost += 0.5; boostText.push("Rush(+0.5)"); }
+    if (sc.is_heavy_weather) { boost -= 1; boostText.push("Weather(-1)"); }
+
+    // Lane Boosts (Inferred from generic lane logic, slightly imperfect for specific lane ID without passing it, 
+    // but we can find lane ID by geometry or just assume general boosts for demo)
+    // Actually we can find lane ID:
+    const lane = state.lanes.find(l => l.vehicles.includes(v));
+    if (lane) {
+        if (sc.is_main_road && (lane.id === 0 || lane.id === 2)) { boost += 3; boostText.push("MainRoad(+3)"); }
+        if (sc.is_school_zone && lane.id === 3) { boost += 4; boostText.push("SchoolLane(+4)"); }
+        if (sc.is_accident && lane.id === 1) { boost -= 100; boostText.push("Blocked(-100)"); }
+        if (sc.has_pedestrian_crossing && lane.id === 0) { boost -= 100; boostText.push("Pedestrian(-100)"); }
+
+        // Rush Hour Lane
+        const count = lane.vehicles.length;
+        if (sc.is_rush_hour && count > 5) { boost += 2; boostText.push("HighTraffic(+2)"); }
+    }
+
+    const final = typeBase + waitBonus + boost;
+
+    // Render Formula
+    content.innerHTML = `
+        <div style="font-weight:bold; color: #fff; margin-bottom:8px;">${v.id} (${v.type})</div>
+        <div>Base Priority: <span style="color: #4CAF50;">${typeBase}</span></div>
+        <div>+ Wait Time: <span style="color: #FFC107;">${waitBonus.toFixed(1)}</span> <span style="color:#777;">(${waitTime.toFixed(0)}s)</span></div>
+        <div>+ Boosts: <span style="color: #2196F3;">${boost}</span></div>
+        ${boostText.length > 0 ? `<div style="font-size:0.8em; color:#aaa; margin-left:10px;">${boostText.join(', ')}</div>` : ''}
+        <div style="border-top:1px solid #555; margin-top:5px; padding-top:5px;">
+            = FINAL PRIORITY: <span style="color: #00dbff; font-weight:bold; font-size:1.1em;">${final.toFixed(1)}</span>
+        </div>
+    `;
 }
