@@ -160,6 +160,11 @@ app.post('/api/decide', (req, res) => {
         const { lanes, simulation_mode, current_time, ...scenario } = req.body;
         console.log("[BACKEND] Scenario Flags:", JSON.stringify(scenario)); // Debug Log
 
+        // Validate Payload
+        if (!lanes || !Array.isArray(lanes)) {
+            throw new Error("Invalid payload: 'lanes' array is missing or invalid.");
+        }
+
         // Update State
         currentState = { lanes, simulationMode: simulation_mode, scenario };
         const currentTime = current_time || Date.now() / 1000;
@@ -168,6 +173,7 @@ app.post('/api/decide', (req, res) => {
         let allLogs = []; // Collect all logs
 
         currentState.lanes.forEach(lane => {
+            if (!lane.vehicles) lane.vehicles = []; // Safety check
             const result = calculateLanePriority(lane, currentState.scenario, currentTime);
             lanePriorities.push(result);
             if (result.logs && result.logs.length > 0) {
@@ -230,12 +236,16 @@ app.post('/api/decide', (req, res) => {
             // If priority is high (Emergency), pass ALL?
             // If Ambulance/Fire/Police in list?
             const topLane = lanes.find(l => l.id === selectedLaneId);
-            const hasEmergency = topLane.vehicles.some(v => ['AMBULANCE', 'FIRE', 'POLICE'].includes(v.type));
 
-            if (hasEmergency) {
-                numVehiclesToPass = topLane.vehicles.length; // Flush all
+            if (topLane && topLane.vehicles) {
+                const hasEmergency = topLane.vehicles.some(v => ['AMBULANCE', 'FIRE', 'POLICE'].includes(v.type));
+                if (hasEmergency) {
+                    numVehiclesToPass = topLane.vehicles.length; // Flush all
+                } else {
+                    numVehiclesToPass = 5 + Math.floor(lanePriorities[0].queue_length / 3);
+                }
             } else {
-                numVehiclesToPass = 5 + Math.floor(lanePriorities[0].queue_length / 3);
+                numVehiclesToPass = 5; // Default fallback
             }
         }
 
