@@ -3,7 +3,7 @@
 #include <string.h>
 
 #define MAX_BUFFER 65536
-#define MAX_VEHICLES_PER_LANE 100
+#define INITIAL_LANE_CAPACITY 10 // Start small to demonstrate realloc
 #define NUM_LANES 4
 #define TIME_SLICE 2
 #define MAX_HEAP_SIZE 100
@@ -26,8 +26,9 @@ typedef struct {
 } Vehicle;
 
 typedef struct {
-    Vehicle* vehicles[MAX_VEHICLES_PER_LANE];
+    Vehicle** vehicles; // Dynamic Array of pointers
     int count;
+    int capacity;       // Track current allocated size
     int id;
 } Lane;
 
@@ -74,6 +75,44 @@ typedef struct {
 #define ADJUSTMENT_PEDESTRIAN -2000
 #define ADJUSTMENT_MAIN_ROAD 1000
 
+// ============= MEMORY MANAGEMENT UTILS =============
+
+void initLane(Lane* lane, int id) {
+    lane->id = id;
+    lane->count = 0;
+    lane->capacity = INITIAL_LANE_CAPACITY;
+    // malloc: Allocate initial array of pointers
+    lane->vehicles = (Vehicle**)malloc(sizeof(Vehicle*) * lane->capacity);
+    if (!lane->vehicles) {
+        fprintf(stderr, "FATAL: Memory allocation failed for lane %d\n", id);
+        exit(1);
+    }
+}
+
+void addVehicleToLane(Lane* lane, Vehicle* v) {
+    if (lane->count >= lane->capacity) {
+        // realloc: Double capacity if full
+        int newCapacity = lane->capacity * 2;
+        Vehicle** newArr = (Vehicle**)realloc(lane->vehicles, sizeof(Vehicle*) * newCapacity);
+        if (!newArr) {
+            fprintf(stderr, "FATAL: Memory reallocation failed for lane %d\n", lane->id);
+            // Free current if we want to be safe, but usually exit
+            exit(1);
+        }
+        lane->vehicles = newArr;
+        lane->capacity = newCapacity;
+        fprintf(stderr, "[MEM] Lane %d resized: %d -> %d\n", lane->id, lane->capacity / 2, lane->capacity);
+    }
+    lane->vehicles[lane->count++] = v;
+}
+
+void freeLane(Lane* lane) {
+    for (int i = 0; i < lane->count; i++) {
+        free(lane->vehicles[i]); // Free individual vehicle
+    }
+    free(lane->vehicles); // Free the array itself
+}
+
 // ============= PRIORITY QUEUE UTILS =============
 
 void swap(HeapNode* a, HeapNode* b) {
@@ -88,8 +127,11 @@ int compareNodes(HeapNode a, HeapNode b) {
     if (a.priority_value != b.priority_value) {
         return a.priority_value > b.priority_value;
     }
-    // Tie case: select lane with highest average waiting time
-    return a.avg_wait > b.avg_wait;
+    // Tie case REMOVED as per client request
+    // "tie case guess u can remove it as it isn't depicting that scenario"
+    // We just return 0 (equal) or maybe 1? 
+    // If strict sort needed, maybe by ID? For now, no strict tie-breaker.
+    return 0; 
 }
 
 void heapifyUp(PriorityQueue* pq, int index) {
@@ -130,10 +172,6 @@ void insertHeap(PriorityQueue* pq, int lane_id, int priority_value, int avg_wait
     pq->size++;
 }
 
-// Ensure strict ordering extraction if needed, but array print loop is often sufficient for visualization if sorted.
-// However, the standard array representation of a heap is not fully sorted, it's just a tree.
-// To satisfy "return full priority queue as an ordered list", we should sort the output (or extract all).
-// Let's implement extractMax to build a sorted list for output.
 HeapNode extractMax(PriorityQueue* pq) {
     HeapNode maxNode = pq->nodes[0];
     pq->nodes[0] = pq->nodes[pq->size - 1];
@@ -191,13 +229,11 @@ void parse_input(char* json, TrafficState* state) {
     char* curr = lane_start;
     
     for(int i=0; i<NUM_LANES; i++) {
-        state->lanes[i].count = 0;
-        state->lanes[i].id = i; // Default ID
+        // Init Dynamic Lane
+        initLane(&state->lanes[i], i);
         
         // Find block start
         char* v_list_tag = strstr(curr, "\"vehicles\"");
-        // Optional: Check if "id": n exists before this to confirm lane ID mapping.
-        // Assuming strict order 0,1,2,3 for simplicity as per previous context.
         
         if (!v_list_tag) break;
         
@@ -215,7 +251,9 @@ void parse_input(char* json, TrafficState* state) {
             char* arrival_key = strstr(obj_open, "\"arrival_time\"");
             
             if (type_key && arrival_key && type_key < arr_close && arrival_key < arr_close) {
+                // malloc: Create vehicle node
                 Vehicle* v = (Vehicle*)malloc(sizeof(Vehicle));
+                if (!v) { fprintf(stderr, "Mem fail\n"); exit(1); }
                 
                 char* type_val = strchr(type_key, ':');
                 if (type_val) v->type = parse_type(type_val);
@@ -223,7 +261,8 @@ void parse_input(char* json, TrafficState* state) {
                 char* arr_val = strchr(arrival_key, ':');
                 if (arr_val) v->arrival_time = atoi(arr_val + 1);
                 
-                state->lanes[i].vehicles[state->lanes[i].count++] = v;
+                // Add to lane (handles capacity)
+                addVehicleToLane(&state->lanes[i], v);
             }
             v_curr = strchr(obj_open, '}'); 
             if (!v_curr) break;
@@ -359,7 +398,7 @@ int main() {
     printf("  \"selected_lane\": %d,\n", selected_lane);
     printf("  \"num_vehicles_to_pass\": %d,\n", TIME_SLICE);
     
-    printf("  \"priority_heap\": [\n"); // Keeping key name 'priority_heap' for frontend compatibility, though it's fully sorted now
+    printf("  \"priority_heap\": [\n");
     for (int i = 0; i < count; i++) {
         printf("    {\"lane_id\": %d, \"priority\": %d, \"rank\": %d}", 
             sortedLanes[i].lane_id, sortedLanes[i].priority_value, i+1);
@@ -368,11 +407,9 @@ int main() {
     printf("\n  ]\n");
     printf("}\n");
     
-    // Cleanup
+    // Cleanup - DYNAMIC MEMORY
     for(int i=0; i<NUM_LANES; i++) {
-        for(int j=0; j<state.lanes[i].count; j++) {
-            free(state.lanes[i].vehicles[j]);
-        }
+        freeLane(&state.lanes[i]);
     }
 
     return 0;

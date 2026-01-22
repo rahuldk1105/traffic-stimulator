@@ -227,7 +227,7 @@ app.post('/api/decide', (req, res) => {
             // Sort by Priority
             lanePriorities.sort((a, b) => {
                 if (b.priority !== a.priority) return b.priority - a.priority; // Desc
-                return b.avg_wait - a.avg_wait; // Tie break
+                return 0; // Removed tie-break as per client request
             });
 
             selectedLaneId = lanePriorities[0].lane_id;

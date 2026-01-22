@@ -943,7 +943,7 @@ function startSimulation() {
     // state.lanes.forEach(l => l.vehicles = []);
 
     // Generate Initial Traffic
-    generateInitialTraffic();
+    // generateInitialTraffic(); // DISABLED FOR MANUAL MODE
 
     // UI Updates
     const btn = document.getElementById('btn-start');
@@ -1235,11 +1235,14 @@ function update(dt, currentTime) {
     }
 
     // Auto-spawn logic
+    // DISABLED FOR MANUAL MODE REQ
+    /*
     if (state.totalSpawned < CONFIG.MAX_VEHICLES_LIMIT && Math.random() < 0.01) { // 1% chance per frame
         const types = ['NORMAL', 'NORMAL', 'TRUCK', 'MOTORCYCLE', 'BUS'];
         const type = types[Math.floor(Math.random() * types.length)];
         spawnVehicle(type);
     }
+    */
 }
 
 // ==================== GEOMETRY HELPERS ====================
