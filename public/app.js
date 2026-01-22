@@ -67,6 +67,7 @@ const state = {
     vehiclesToPass: 0,
     waitingForDecision: false,
     simulationMode: 'PRIORITY',
+    autoSpawnEnabled: localStorage.getItem('autoSpawnEnabled') === 'true', // Load from localStorage
 
     // Metrics Tracking
     metrics: {
@@ -136,6 +137,9 @@ function initApp() {
                     
                     <div class="controls">
                         <button id="btn-start">START SIMULATION</button>
+                        <button id="btn-toggle-spawn" style="margin-left: 15px; background: ${state.autoSpawnEnabled ? '#28a745' : '#666'}; color: white; padding: 8px 15px; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem;">
+                            ${state.autoSpawnEnabled ? '🚗 Auto-Spawn: ON' : '✋ Manual Only'}
+                        </button>
                         <div class="status-bar-mini" style="margin-left: 20px; display: inline-flex; gap: 15px; font-size: 0.9rem;">
                             <div>Served: <span id="vehicles-served">0</span></div>
                             <div>Switches: <span id="signal-switches">0</span></div>
@@ -510,6 +514,21 @@ function initControls() {
                 target.style.zIndex = "";
             }
         });
+    }
+
+    // Auto-Spawn Toggle Button
+    const btnToggleSpawn = document.getElementById('btn-toggle-spawn');
+    if (btnToggleSpawn) {
+        btnToggleSpawn.onclick = () => {
+            state.autoSpawnEnabled = !state.autoSpawnEnabled;
+            localStorage.setItem('autoSpawnEnabled', state.autoSpawnEnabled);
+
+            // Update button appearance
+            btnToggleSpawn.style.background = state.autoSpawnEnabled ? '#28a745' : '#666';
+            btnToggleSpawn.textContent = state.autoSpawnEnabled ? '🚗 Auto-Spawn: ON' : '✋ Manual Only';
+
+            console.log(`[UI] Auto-Spawn ${state.autoSpawnEnabled ? 'ENABLED' : 'DISABLED'}`);
+        };
     }
 
     // Add Verification Button logic to help verify
@@ -1234,15 +1253,12 @@ function update(dt, currentTime) {
         }
     }
 
-    // Auto-spawn logic
-    // DISABLED FOR MANUAL MODE REQ
-    /*
-    if (state.totalSpawned < CONFIG.MAX_VEHICLES_LIMIT && Math.random() < 0.01) { // 1% chance per frame
+    // Auto-spawn logic (Controlled by Toggle)
+    if (state.autoSpawnEnabled && state.totalSpawned < CONFIG.MAX_VEHICLES_LIMIT && Math.random() < 0.01) {
         const types = ['NORMAL', 'NORMAL', 'TRUCK', 'MOTORCYCLE', 'BUS'];
         const type = types[Math.floor(Math.random() * types.length)];
         spawnVehicle(type);
     }
-    */
 }
 
 // ==================== GEOMETRY HELPERS ====================
