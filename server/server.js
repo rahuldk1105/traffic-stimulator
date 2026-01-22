@@ -41,6 +41,7 @@ function calculateLanePriority(lane, scenario, currentTime) {
     let totalWait = 0;
     let vehicleCount = lane.vehicles.length;
     let boostReasons = new Set(); // Use Set to avoid duplicates
+    let laneLogs = [];
 
     if (vehicleCount === 0) return { priority: 0, avgWait: 0, boostDetails: "-" };
 
